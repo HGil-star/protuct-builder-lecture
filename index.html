@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>로또 번호 뽑기</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <main class="card">
+        <header>
+            <span class="badge">🍀 Lotto 6/45</span>
+            <h1>로또 번호 뽑기</h1>
+            <p class="subtitle">1 ~ 45 중 겹치지 않는 번호 6개와 보너스 번호 1개를 뽑아요.</p>
+        </header>
+
+        <!-- 게임 수 선택 -->
+        <div class="games">
+            <span class="games-label">게임 수</span>
+            <div class="segmented" id="gameSelect">
+                <button type="button" data-games="1" class="active">1</button>
+                <button type="button" data-games="2">2</button>
+                <button type="button" data-games="3">3</button>
+                <button type="button" data-games="4">4</button>
+                <button type="button" data-games="5">5</button>
+            </div>
+        </div>
+
+        <!-- 결과 -->
+        <div id="results" class="results" aria-live="polite">
+            <div class="placeholder">버튼을 눌러 행운의 번호를 뽑아보세요!</div>
+        </div>
+
+        <div class="actions">
+            <button id="drawButton" class="primary">번호 뽑기</button>
+            <button id="copyButton" class="ghost" disabled>복사</button>
+        </div>
+
+        <!-- 기록 -->
+        <section class="history">
+            <div class="history-head">
+                <span id="count">뽑은 횟수: 0회</span>
+                <button id="resetButton" class="link">기록 지우기</button>
+            </div>
+            <ul id="historyList" class="history-list">
+                <li class="empty">아직 뽑은 번호가 없어요</li>
+            </ul>
+            <p class="hint">스페이스바로도 뽑을 수 있어요</p>
+        </section>
+    </main>
+
+    <div id="toast" class="toast" hidden></div>
+
+    <script src="script.js"></script>
+
+</body>
+</html>
