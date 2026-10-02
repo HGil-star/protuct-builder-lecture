@@ -336,347 +336,13 @@ const ImageKit = (function () {
         return out;
     }
 
-    /* ========== 스타일 변환 도구 ========== */
-
-    // 투명하지 않은 픽셀끼리만 섞는 흐림 (윤곽 색이 배경과 섞이지 않게)
-    function blurOpaque(data, w, h, radius) {
-        const src = new Float32Array(data);
-        const tmp = new Float32Array(w * h * 4);
-
-        function pass(from, to, horizontal) {
-            for (let a = 0; a < (horizontal ? h : w); a++) {
-                for (let b = 0; b < (horizontal ? w : h); b++) {
-                    let r = 0, g = 0, bl = 0, cnt = 0;
-                    for (let k = -radius; k <= radius; k++) {
-                        const c = b + k;
-                        if (c < 0 || c >= (horizontal ? w : h)) continue;
-                        const p = horizontal ? a * w + c : c * w + a;
-                        if (data[p * 4 + 3] < 128) continue;
-                        r += from[p * 4];
-                        g += from[p * 4 + 1];
-                        bl += from[p * 4 + 2];
-                        cnt++;
-                    }
-                    const p = horizontal ? a * w + b : b * w + a;
-                    if (cnt > 0) {
-                        to[p * 4] = r / cnt;
-                        to[p * 4 + 1] = g / cnt;
-                        to[p * 4 + 2] = bl / cnt;
-                    }
-                }
-            }
-        }
-
-        pass(src, tmp, true);
-        pass(tmp, src, false);
-        for (let p = 0; p < w * h; p++) {
-            if (data[p * 4 + 3] < 128) continue;
-            data[p * 4] = src[p * 4];
-            data[p * 4 + 1] = src[p * 4 + 1];
-            data[p * 4 + 2] = src[p * 4 + 2];
-        }
-    }
-
-    // 물체 색을 k개 대표색으로 묶기 (k-평균)
-    function findPalette(data, k) {
-        const samples = [];
-        const total = data.length / 4;
-        const step = Math.max(1, Math.floor(total / 20000));
-        for (let p = 0; p < total; p += step) {
-            const i = p * 4;
-            if (data[i + 3] >= 128) samples.push([data[i], data[i + 1], data[i + 2]]);
-        }
-        if (samples.length === 0) return [[0, 0, 0]];
-
-        // 밝기 순으로 정렬해 고르게 시작점 잡기
-        samples.sort(function (a, b) {
-            return (a[0] * 3 + a[1] * 6 + a[2]) - (b[0] * 3 + b[1] * 6 + b[2]);
-        });
-        k = Math.min(k, samples.length);
-        let centers = [];
-        for (let c = 0; c < k; c++) {
-            centers.push(samples[Math.floor((c + 0.5) * samples.length / k)].slice());
-        }
-
-        for (let iter = 0; iter < 10; iter++) {
-            const sums = centers.map(function () { return [0, 0, 0, 0]; });
-            samples.forEach(function (s) {
-                const c = nearest(centers, s[0], s[1], s[2]);
-                sums[c][0] += s[0];
-                sums[c][1] += s[1];
-                sums[c][2] += s[2];
-                sums[c][3]++;
-            });
-            centers = centers.map(function (old, c) {
-                const s = sums[c];
-                return s[3] ? [s[0] / s[3], s[1] / s[3], s[2] / s[3]] : old;
-            });
-        }
-        return centers;
-    }
-
-    function nearest(centers, r, g, b) {
-        let best = 0;
-        let bestD = Infinity;
-        for (let c = 0; c < centers.length; c++) {
-            const d = colorDistance(r, g, b, centers[c][0], centers[c][1], centers[c][2]);
-            if (d < bestD) {
-                bestD = d;
-                best = c;
-            }
-        }
-        return best;
-    }
-
-    function luminance(r, g, b) {
-        return r * 0.299 + g * 0.587 + b * 0.114;
-    }
-
-    // 실루엣 둘레에 외곽선(테두리) 두르기
-    function addOutline(canvas, thickness, color, withShadow) {
-        const t = Math.round(thickness);
-        const pad = withShadow ? 24 : 0;
-        const out = createCanvas(canvas.width + (t + pad) * 2, canvas.height + (t + pad) * 2);
-        const ctx = out.getContext("2d");
-
-        if (t > 0) {
-            // 실루엣 모양을 외곽선 색으로 칠한 것
-            const silhouette = createCanvas(canvas.width, canvas.height);
-            const sctx = silhouette.getContext("2d");
-            sctx.drawImage(canvas, 0, 0);
-            sctx.globalCompositeOperation = "source-in";
-            sctx.fillStyle = color;
-            sctx.fillRect(0, 0, silhouette.width, silhouette.height);
-
-            // 원을 따라 여러 번 찍어서 두껍게 만들기
-            const ring = createCanvas(out.width, out.height);
-            const rctx = ring.getContext("2d");
-            [1, 0.66, 0.33].forEach(function (ratio) {
-                const r = t * ratio;
-                const steps = Math.max(16, Math.ceil(2 * Math.PI * r));
-                for (let s = 0; s < steps; s++) {
-                    const angle = (s / steps) * Math.PI * 2;
-                    rctx.drawImage(silhouette, t + pad + Math.cos(angle) * r, t + pad + Math.sin(angle) * r);
-                }
-            });
-
-            if (withShadow) {
-                ctx.shadowColor = "rgba(0, 0, 0, 0.28)";
-                ctx.shadowBlur = 16;
-                ctx.shadowOffsetY = 6;
-            }
-            ctx.drawImage(ring, 0, 0);
-            ctx.shadowColor = "transparent";
-        }
-
-        ctx.drawImage(canvas, t + pad, t + pad);
-        return out;
-    }
-
-    // 물체 테두리를 매끈하게 (반투명 가장자리를 또렷하게)
-    function hardenAlpha(data) {
-        for (let i = 3; i < data.length; i += 4) {
-            data[i] = data[i] >= 128 ? 255 : 0;
-        }
-    }
-
-    /* ========== 스타일 1: 플랫 일러스트 ========== */
-
-    function styleFlat(cut, options) {
-        const canvas = toCanvas(cut, 800);
-        const w = canvas.width;
-        const h = canvas.height;
-        const imageData = getPixels(canvas);
-        const data = imageData.data;
-
-        hardenAlpha(data);
-        blurOpaque(data, w, h, 3);
-        const palette = findPalette(data, options.colors);
-
-        // 각 픽셀을 가장 가까운 대표색으로
-        const index = new Int16Array(w * h).fill(-1);
-        for (let p = 0; p < w * h; p++) {
-            const i = p * 4;
-            if (data[i + 3] === 0) continue;
-            const c = nearest(palette, data[i], data[i + 1], data[i + 2]);
-            index[p] = c;
-            data[i] = palette[c][0];
-            data[i + 1] = palette[c][1];
-            data[i + 2] = palette[c][2];
-        }
-
-        // 밝기 차이가 큰 색 경계에 얇은 선을 넣어 그림 느낌 내기
-        const line = hexToRgb(options.outlineColor);
-        for (let p = 0; p < w * h; p++) {
-            const c = index[p];
-            if (c < 0) continue;
-            const x = p % w;
-            const right = x < w - 1 ? index[p + 1] : -1;
-            const down = p + w < w * h ? index[p + w] : -1;
-            const lc = luminance(palette[c][0], palette[c][1], palette[c][2]);
-            [right, down].forEach(function (o) {
-                if (o < 0 || o === c) return;
-                if (Math.abs(lc - luminance(palette[o][0], palette[o][1], palette[o][2])) > 45) {
-                    const i = p * 4;
-                    data[i] = line[0];
-                    data[i + 1] = line[1];
-                    data[i + 2] = line[2];
-                }
-            });
-        }
-
-        canvas.getContext("2d").putImageData(imageData, 0, 0);
-        return addOutline(canvas, options.outline, options.outlineColor, false);
-    }
-
-    /* ========== 스타일 2: 라인 드로잉 ========== */
-
-    function styleLine(cut, options) {
-        const canvas = toCanvas(cut, 800);
-        const w = canvas.width;
-        const h = canvas.height;
-        const imageData = getPixels(canvas);
-        const data = imageData.data;
-
-        hardenAlpha(data);
-        blurOpaque(data, w, h, 1);
-
-        const gray = new Float32Array(w * h);
-        for (let p = 0; p < w * h; p++) {
-            gray[p] = luminance(data[p * 4], data[p * 4 + 1], data[p * 4 + 2]);
-        }
-
-        // detail 1~10: 클수록 약한 경계까지 선으로 그림
-        const threshold = 150 - options.detail * 12;
-        const line = hexToRgb(options.outlineColor);
-
-        for (let y = 0; y < h; y++) {
-            for (let x = 0; x < w; x++) {
-                const p = y * w + x;
-                const i = p * 4;
-                if (data[i + 3] === 0) continue;
-
-                let mag = 0;
-                if (x > 0 && y > 0 && x < w - 1 && y < h - 1) {
-                    const gx = -gray[p - w - 1] - 2 * gray[p - 1] - gray[p + w - 1] +
-                        gray[p - w + 1] + 2 * gray[p + 1] + gray[p + w + 1];
-                    const gy = -gray[p - w - 1] - 2 * gray[p - w] - gray[p - w + 1] +
-                        gray[p + w - 1] + 2 * gray[p + w] + gray[p + w + 1];
-                    mag = Math.sqrt(gx * gx + gy * gy);
-                }
-
-                // 선 강도만큼 선 색, 나머지는 흰색으로 채움
-                const s = Math.min(1, Math.max(0, (mag - threshold) / 60));
-                data[i] = 255 + (line[0] - 255) * s;
-                data[i + 1] = 255 + (line[1] - 255) * s;
-                data[i + 2] = 255 + (line[2] - 255) * s;
-            }
-        }
-
-        canvas.getContext("2d").putImageData(imageData, 0, 0);
-        return addOutline(canvas, options.outline, options.outlineColor, false);
-    }
-
-    /* ========== 스타일 3: 스티커 ========== */
-
-    function styleSticker(cut, options) {
-        const canvas = toCanvas(cut, 800);
-        const imageData = getPixels(canvas);
-        hardenAlpha(imageData.data);
-        canvas.getContext("2d").putImageData(imageData, 0, 0);
-        return addOutline(canvas, options.outline, options.outlineColor, true);
-    }
-
-    /* ========== 스타일 4: 픽셀 아트 ========== */
-
-    function stylePixel(cut, options) {
-        // detail 1~10 → 가로 칸 수 16 ~ 88
-        const cols = 8 + options.detail * 8;
-        const small = toCanvas(cut, cols);
-        const w = small.width;
-        const h = small.height;
-        const imageData = getPixels(small);
-        const data = imageData.data;
-
-        hardenAlpha(data);
-        const palette = findPalette(data, options.colors);
-        for (let p = 0; p < w * h; p++) {
-            const i = p * 4;
-            if (data[i + 3] === 0) continue;
-            const c = palette[nearest(palette, data[i], data[i + 1], data[i + 2])];
-            data[i] = c[0];
-            data[i + 1] = c[1];
-            data[i + 2] = c[2];
-        }
-
-        // 외곽선도 칸 단위로 (두께 1 이상이면 한 칸)
-        let grid = small;
-        if (options.outline > 0) {
-            grid = createCanvas(w + 2, h + 2);
-            const gData = grid.getContext("2d").createImageData(w + 2, h + 2);
-            const gd = gData.data;
-            const line = hexToRgb(options.outlineColor);
-            const gw = w + 2;
-
-            for (let y = 0; y < h; y++) {
-                for (let x = 0; x < w; x++) {
-                    const i = (y * w + x) * 4;
-                    if (data[i + 3] === 0) continue;
-                    // 주변 8칸 중 비어 있는 곳에 선 색 칠하기
-                    for (let dy = -1; dy <= 1; dy++) {
-                        for (let dx = -1; dx <= 1; dx++) {
-                            const j = ((y + 1 + dy) * gw + (x + 1 + dx)) * 4;
-                            if (gd[j + 3] === 0) {
-                                gd[j] = line[0];
-                                gd[j + 1] = line[1];
-                                gd[j + 2] = line[2];
-                                gd[j + 3] = 255;
-                            }
-                        }
-                    }
-                }
-            }
-            for (let y = 0; y < h; y++) {
-                for (let x = 0; x < w; x++) {
-                    const i = (y * w + x) * 4;
-                    if (data[i + 3] === 0) continue;
-                    const j = ((y + 1) * gw + (x + 1)) * 4;
-                    gd[j] = data[i];
-                    gd[j + 1] = data[i + 1];
-                    gd[j + 2] = data[i + 2];
-                    gd[j + 3] = 255;
-                }
-            }
-            grid.getContext("2d").putImageData(gData, 0, 0);
-        } else {
-            small.getContext("2d").putImageData(imageData, 0, 0);
-        }
-
-        // 칸이 또렷하게 보이도록 크게 키우기
-        const scale = Math.max(1, Math.floor(800 / Math.max(grid.width, grid.height)));
-        const out = createCanvas(grid.width * scale, grid.height * scale);
-        const ctx = out.getContext("2d");
-        ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(grid, 0, 0, out.width, out.height);
-        return out;
-    }
-
-    function hexToRgb(hex) {
-        const v = parseInt(hex.replace("#", ""), 16);
-        return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
-    }
-
-    const styles = {
-        flat: styleFlat,
-        line: styleLine,
-        sticker: styleSticker,
-        pixel: stylePixel
-    };
-
     /* ========== 저장 ========== */
 
     async function downloadPng(canvas, filename) {
-        const blob = await canvasToBlob(canvas);
+        downloadBlob(await canvasToBlob(canvas), filename);
+    }
+
+    function downloadBlob(blob, filename) {
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
@@ -722,12 +388,14 @@ const ImageKit = (function () {
     }
 
     // 클릭, 끌어다 놓기, 붙여넣기(Ctrl+V)로 이미지 받기
-    function setupDropzone(zone, input, onFile) {
+    // multiple이 true면 onFile에 이미지 파일 배열을, 아니면 첫 파일 하나를 넘김
+    function setupDropzone(zone, input, onFile, multiple) {
         function pick(files) {
-            const file = Array.from(files || []).find(function (f) {
+            const images = Array.from(files || []).filter(function (f) {
                 return f.type.indexOf("image/") === 0;
             });
-            if (file) onFile(file);
+            if (images.length === 0) return;
+            onFile(multiple ? images : images[0]);
         }
 
         input.addEventListener("change", function () {
@@ -782,13 +450,16 @@ const ImageKit = (function () {
     }
 
     return {
+        loadImage: loadImage,
+        toCanvas: toCanvas,
+        canvasToBlob: canvasToBlob,
+        downloadBlob: downloadBlob,
         fileToCanvas: fileToCanvas,
         cloneCanvas: cloneCanvas,
         removeBackgroundAI: removeBackgroundAI,
         removeBackgroundColor: removeBackgroundColor,
         removeSpecks: removeSpecks,
         trimTransparent: trimTransparent,
-        styles: styles,
         downloadPng: downloadPng,
         baseName: baseName,
         setupTheme: setupTheme,

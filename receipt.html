@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>영수증 스캐너 – 사진을 깔끔한 스캔본으로</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="common.css">
+    <link rel="stylesheet" href="receipt.css">
+</head>
+
+<body>
+
+    <header class="topbar">
+        <nav class="nav">
+            <a href="index.html">🍀 로또</a>
+            <a href="receipt.html" class="current">🧾 영수증 스캐너</a>
+            <a href="cutout.html">✂️ 누끼 메이커</a>
+        </nav>
+        <div class="segmented" id="themeSelect">
+            <button type="button" data-value="auto">자동</button>
+            <button type="button" data-value="light">☀️</button>
+            <button type="button" data-value="dark">🌙</button>
+        </div>
+    </header>
+
+    <section class="hero">
+        <h1>🧾 영수증 스캐너</h1>
+        <p>
+            영수증 사진을 여러 장 한 번에 올리면 영수증 부분만 잘라내고,
+            배경은 하얗게, 흐린 글씨는 선명하게 바꿔서 ZIP으로 내려받아요.
+            사진은 서버로 올라가지 않고 내 브라우저 안에서만 처리돼요.
+        </p>
+    </section>
+
+    <main class="tool">
+
+        <!-- ===== 설정 ===== -->
+        <section class="panel controls">
+            <label class="dropzone" id="dropzone">
+                <input type="file" id="fileInput" accept="image/*" multiple hidden>
+                <span class="dropzone-icon">🧾</span>
+                <strong>영수증 사진 올리기 (여러 장 가능)</strong>
+                <span>클릭해서 고르거나, 여러 파일을 한꺼번에 끌어다 놓으세요</span>
+            </label>
+
+            <div class="field">
+                <label class="check">
+                    <input type="checkbox" id="cropCheck" checked>
+                    영수증 부분만 자동으로 잘라내기
+                </label>
+                <p class="field-help">비스듬히 찍힌 영수증도 반듯하게 펴 줘요.</p>
+            </div>
+
+            <div class="field">
+                <span class="field-label">보정 방식</span>
+                <div class="segmented" id="modeSelect">
+                    <button type="button" data-value="gray" class="active">⚫ 흑백 스캔</button>
+                    <button type="button" data-value="color">🎨 컬러 유지</button>
+                    <button type="button" data-value="none">원본 색</button>
+                </div>
+                <p class="field-help" id="modeHelp"></p>
+            </div>
+
+            <div class="field" id="strengthField">
+                <label class="field-label" for="strength">
+                    하얗고 선명하게 <output id="strengthValue">6</output>
+                </label>
+                <input type="range" id="strength" min="1" max="10" value="6">
+                <p class="field-help">글씨가 너무 굵어지면 낮추고, 배경이 덜 하얗면 높여요.</p>
+            </div>
+
+            <div class="field">
+                <span class="field-label">크기 · 파일 형식</span>
+                <div class="row">
+                    <select id="widthSelect">
+                        <option value="800">가로 800px</option>
+                        <option value="1000">가로 1000px</option>
+                        <option value="1200" selected>가로 1200px</option>
+                        <option value="1600">가로 1600px</option>
+                        <option value="0">원본 크기</option>
+                    </select>
+                    <select id="formatSelect">
+                        <option value="jpg" selected>JPG (용량 작음)</option>
+                        <option value="png">PNG (화질 그대로)</option>
+                    </select>
+                </div>
+            </div>
+
+            <p class="field-help settings-note" id="settingsNote" hidden>
+                설정이 바뀌었어요. <button type="button" class="link" id="reprocessButton">모든 영수증 다시 처리</button>
+            </p>
+        </section>
+
+        <!-- ===== 진행 상황 + 결과 ===== -->
+        <section class="panel results-panel">
+            <div class="progress-card" id="progressCard">
+                <div class="progress-top">
+                    <strong id="progressTitle">사진을 올리면 바로 처리를 시작해요</strong>
+                    <span id="progressCount">0 / 0</span>
+                </div>
+                <div class="progress big"><div id="progressBar"></div></div>
+                <div class="progress-bottom">
+                    <span id="progressDetail">여러 장을 한꺼번에 올려도 괜찮아요</span>
+                    <span id="progressEta"></span>
+                </div>
+            </div>
+
+            <div class="results-actions">
+                <button id="zipButton" class="primary" disabled>📦 ZIP으로 모두 받기</button>
+                <button id="stopButton" class="secondary" hidden>⏸ 멈추기</button>
+                <button id="resumeButton" class="secondary" hidden>▶ 이어서 처리</button>
+                <button id="clearButton" class="link">모두 지우기</button>
+            </div>
+
+            <div class="receipt-grid" id="grid">
+                <p class="grid-empty" id="gridEmpty">아직 올린 영수증이 없어요</p>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- 크게 보기 -->
+    <div class="viewer" id="viewer" hidden>
+        <div class="viewer-bar">
+            <span id="viewerName"></span>
+            <div class="segmented" id="viewerToggle">
+                <button type="button" data-value="after" class="active">보정 후</button>
+                <button type="button" data-value="before">원본</button>
+            </div>
+            <button type="button" class="viewer-close" id="viewerClose" aria-label="닫기">✕</button>
+        </div>
+        <div class="viewer-body">
+            <img id="viewerImage" alt="">
+        </div>
+    </div>
+
+    <div id="toast" class="toast" hidden></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="imagekit.js"></script>
+    <script src="receipt.js"></script>
+
+</body>
+</html>

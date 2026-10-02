@@ -1,0 +1,298 @@
+/* 영수증 스캐너 전용 스타일 (공용은 common.css) */
+
+select {
+    padding: 9px 12px;
+    font: inherit;
+    font-size: 14px;
+    color: var(--text);
+    background: var(--raised);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+}
+
+.row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+button.secondary {
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--line);
+}
+
+button.link {
+    padding: 0;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--muted);
+    background: none;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.settings-note {
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: var(--surface);
+}
+
+.settings-note .link {
+    color: var(--accent-1);
+    font-weight: 700;
+}
+
+/* ========== 진행 상황 ========== */
+.progress-card {
+    padding: 18px 20px;
+    border-radius: 18px;
+    background: var(--surface);
+}
+
+.progress-top,
+.progress-bottom {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+}
+
+.progress-top strong {
+    font-size: 16px;
+}
+
+.progress-top span {
+    font-size: 15px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.progress-bottom {
+    font-size: 13px;
+    color: var(--muted);
+}
+
+.progress-bottom span:first-child {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.progress-bottom span:last-child {
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+}
+
+.progress.big {
+    height: 12px;
+    margin: 12px 0 10px;
+    background: var(--card);
+}
+
+.progress-card.working .progress div {
+    background-size: 200% 100%;
+    background-image: linear-gradient(90deg, var(--accent-1), var(--accent-2), var(--accent-1));
+    animation: flow 1.6s linear infinite;
+}
+
+.progress-card.done .progress div {
+    background: #16a34a;
+}
+
+@keyframes flow {
+    to { background-position: -200% 0; }
+}
+
+.results-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin: 18px 0;
+}
+
+.results-actions .primary {
+    width: auto;
+    flex: 1 1 220px;
+}
+
+/* ========== 영수증 카드 ========== */
+.receipt-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 14px;
+}
+
+.grid-empty {
+    grid-column: 1 / -1;
+    margin: 0;
+    padding: 40px 0;
+    text-align: center;
+    color: var(--muted);
+    font-size: 14px;
+}
+
+.receipt {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.receipt-thumb {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    aspect-ratio: 3 / 4;
+    padding: 8px;
+    border-radius: 14px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    overflow: hidden;
+    cursor: zoom-in;
+}
+
+.receipt-thumb img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.receipt-thumb img.pending {
+    opacity: 0.35;
+    filter: grayscale(1);
+}
+
+.badge {
+    position: absolute;
+    left: 8px;
+    bottom: 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 9px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    color: white;
+    background: rgba(17, 24, 39, 0.75);
+}
+
+.badge.done   { background: #16a34a; }
+.badge.failed { background: var(--error); }
+
+.badge .mini-spinner {
+    width: 10px;
+    height: 10px;
+    border: 2px solid rgba(255, 255, 255, 0.4);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.receipt-tools {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    display: flex;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.receipt:hover .receipt-tools,
+.receipt-tools:focus-within {
+    opacity: 1;
+}
+
+@media (hover: none) {
+    .receipt-tools {
+        opacity: 1;
+    }
+}
+
+.receipt-tools button {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    font-size: 14px;
+    color: var(--text);
+    background: var(--card);
+    border-radius: 50%;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+.receipt-meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.receipt-meta span:first-child {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.receipt-meta span:last-child {
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ========== 크게 보기 ========== */
+.viewer {
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    background: rgba(15, 23, 42, 0.92);
+}
+
+.viewer-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: calc(12px + env(safe-area-inset-top, 0px)) 16px 12px;
+    color: white;
+    font-size: 14px;
+}
+
+.viewer-bar span {
+    flex: 1;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.viewer-close {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    font-size: 16px;
+    color: white;
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 50%;
+}
+
+.viewer-body {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 0 16px calc(16px + env(safe-area-inset-bottom, 0px));
+    overflow: auto;
+}
+
+.viewer-body img {
+    max-width: min(100%, 900px);
+    background: white;
+}
