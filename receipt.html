@@ -10,25 +10,31 @@
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="common.css">
     <link rel="stylesheet" href="receipt.css">
+    <link rel="stylesheet" href="ui.css">
 </head>
 
 <body>
 
-    <header class="topbar">
-        <nav class="nav">
-            <a href="index.html">🍀 로또</a>
-            <a href="receipt.html" class="current">🧾 영수증 스캐너</a>
-            <a href="cutout.html">✂️ 누끼 메이커</a>
-        </nav>
-        <div class="segmented" id="themeSelect">
+    <header class="site-header">
+        <div class="header-inner">
+            <a class="brand" href="receipt.html">영수증 스캐너</a>
+            <div class="segmented" id="themeSelect">
             <button type="button" data-value="auto">자동</button>
             <button type="button" data-value="light">☀️</button>
             <button type="button" data-value="dark">🌙</button>
         </div>
+        </div>
     </header>
+    <div class="navigation-bar">
+        <nav class="nav" aria-label="도구 선택">
+            <a href="index.html">로또</a>
+            <a href="receipt.html" class="current">영수증 스캐너</a>
+            <a href="cutout.html">✂누끼 메이커</a>
+        </nav>
+    </div>
 
     <section class="hero">
-        <h1>🧾 영수증 스캐너</h1>
+        <h1>영수증 스캐너</h1>
         <p>
             영수증 사진을 여러 장 한 번에 올리면 영수증 부분만 잘라내고,
             배경은 하얗게, 흐린 글씨는 선명하게 바꿔서 ZIP으로 내려받아요.

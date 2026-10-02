@@ -9,25 +9,31 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="common.css">
+    <link rel="stylesheet" href="ui.css">
 </head>
 
 <body>
 
-    <header class="topbar">
-        <nav class="nav">
-            <a href="index.html">🍀 로또</a>
-            <a href="receipt.html">🧾 영수증 스캐너</a>
-            <a href="cutout.html" class="current">✂️ 누끼 메이커</a>
-        </nav>
-        <div class="segmented" id="themeSelect">
+    <header class="site-header">
+        <div class="header-inner">
+            <a class="brand" href="cutout.html">누끼 메이커</a>
+            <div class="segmented" id="themeSelect">
             <button type="button" data-value="auto">자동</button>
             <button type="button" data-value="light">☀️</button>
             <button type="button" data-value="dark">🌙</button>
         </div>
+        </div>
     </header>
+    <div class="navigation-bar">
+        <nav class="nav" aria-label="도구 선택">
+            <a href="index.html">로또</a>
+            <a href="receipt.html">영수증 스캐너</a>
+            <a href="cutout.html" class="current">✂누끼 메이커</a>
+        </nav>
+    </div>
 
     <section class="hero">
-        <h1>✂️ 누끼 메이커</h1>
+        <h1>누끼 메이커</h1>
         <p>
             사진을 올리면 배경을 지우고 투명한 PNG로 만들어 줘요.
             물체 주변의 필요 없는 여백도 자동으로 잘라내요.

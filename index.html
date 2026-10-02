@@ -9,19 +9,16 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="ui.css">
 </head>
 
 <body>
 
     <!-- 상단 바: 테마 / 화면 모드 선택 -->
-    <header class="topbar">
-        <nav class="nav">
-            <a href="index.html" class="current">🍀 로또</a>
-            <a href="receipt.html">🧾 영수증 스캐너</a>
-            <a href="cutout.html">✂️ 누끼 메이커</a>
-        </nav>
-
-        <div class="settings">
+    <header class="site-header">
+        <div class="header-inner">
+            <a class="brand" href="index.html">로또 번호 뽑기</a>
+            <div class="settings">
             <div class="setting">
                 <span class="setting-label">테마</span>
                 <div class="segmented" id="themeSelect">
@@ -39,7 +36,15 @@
                 </div>
             </div>
         </div>
+        </div>
     </header>
+    <div class="navigation-bar">
+        <nav class="nav" aria-label="도구 선택">
+            <a href="index.html" class="current">로또</a>
+            <a href="receipt.html">영수증 스캐너</a>
+            <a href="cutout.html">✂누끼 메이커</a>
+        </nav>
+    </div>
 
     <main class="app">
 
