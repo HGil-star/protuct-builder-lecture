@@ -54,10 +54,17 @@
     box-sizing: border-box;
 }
 
+/* 배경 그라데이션은 html에 (긴 페이지·모바일에서도 끝까지 이어지게) */
+html {
+    min-height: 100%;
+    background: linear-gradient(135deg, var(--bg-1), var(--bg-2)) no-repeat;
+    background-color: var(--bg-1);
+}
+
 body {
     font-family: "Noto Sans KR", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
     color: var(--text);
-    background: linear-gradient(135deg, var(--bg-1), var(--bg-2)) fixed;
+    background: transparent;
     min-height: 100vh;
     margin: 0;
     padding: 0 16px 40px;
@@ -85,9 +92,31 @@ h1, h2 {
     backdrop-filter: blur(12px);
 }
 
-.brand {
-    font-size: 18px;
-    font-weight: 900;
+.nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.nav a {
+    padding: 8px 14px;
+    border-radius: 10px;
+    color: var(--muted);
+    font-size: 14px;
+    font-weight: 500;
+    text-decoration: none;
+}
+
+.nav a:hover {
+    color: var(--text);
+    background: var(--surface);
+}
+
+.nav a.current {
+    color: var(--text);
+    background: var(--raised);
+    font-weight: 700;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
 }
 
 .settings {

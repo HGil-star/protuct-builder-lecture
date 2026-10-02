@@ -62,7 +62,7 @@ function markActive(group, value) {
 
 /* ========== 테마 (자동 / 라이트 / 다크) ========== */
 
-let theme = loadSetting("lotto-theme", "auto");
+let theme = loadSetting("site-theme", "auto");
 
 function applyTheme() {
     if (theme === "auto") {
@@ -342,7 +342,7 @@ themeSelect.addEventListener("click", function (event) {
     const target = event.target.closest("button");
     if (!target) return;
     theme = target.dataset.value;
-    saveSetting("lotto-theme", theme);
+    saveSetting("site-theme", theme);
     applyTheme();
 });
 

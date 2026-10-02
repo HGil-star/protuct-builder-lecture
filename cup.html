@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>컵툰 – 컵 사진을 일러스트로</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="common.css">
+</head>
+
+<body>
+
+    <header class="topbar">
+        <nav class="nav">
+            <a href="index.html">🍀 로또</a>
+            <a href="cup.html" class="current">☕ 컵툰</a>
+            <a href="cutout.html">✂️ 누끼 메이커</a>
+        </nav>
+        <div class="segmented" id="themeSelect">
+            <button type="button" data-value="auto">자동</button>
+            <button type="button" data-value="light">☀️</button>
+            <button type="button" data-value="dark">🌙</button>
+        </div>
+    </header>
+
+    <section class="hero">
+        <h1>☕ 컵툰</h1>
+        <p>
+            컵 사진을 올리면 같은 모양의 일러스트로 바꿔 줘요.
+            배경은 투명하게, 크기는 컵에 딱 맞게 잘라서 PNG로 저장돼요.
+        </p>
+    </section>
+
+    <main class="tool">
+
+        <!-- 설정 -->
+        <section class="panel controls">
+            <label class="dropzone" id="dropzone">
+                <input type="file" id="fileInput" accept="image/*" hidden>
+                <span class="dropzone-icon">☕</span>
+                <strong>컵 사진 올리기</strong>
+                <span>클릭하거나, 끌어다 놓거나, Ctrl+V로 붙여넣기</span>
+            </label>
+
+            <div class="field">
+                <span class="field-label">스타일</span>
+                <div class="segmented" id="styleSelect">
+                    <button type="button" data-value="flat" class="active">🎨 플랫</button>
+                    <button type="button" data-value="line">✏️ 라인</button>
+                    <button type="button" data-value="sticker">🏷️ 스티커</button>
+                    <button type="button" data-value="pixel">👾 픽셀</button>
+                </div>
+                <p class="field-help" id="styleHelp"></p>
+            </div>
+
+            <div class="field" id="colorsField">
+                <label class="field-label" for="colors">
+                    색상 수 <output id="colorsValue">6</output>
+                </label>
+                <input type="range" id="colors" min="2" max="12" value="6">
+            </div>
+
+            <div class="field" id="detailField" hidden>
+                <label class="field-label" for="detail">
+                    <span id="detailLabel">세밀함</span> <output id="detailValue">5</output>
+                </label>
+                <input type="range" id="detail" min="1" max="10" value="5">
+            </div>
+
+            <div class="field">
+                <label class="field-label" for="outline">
+                    외곽선 두께 <output id="outlineValue">6px</output>
+                </label>
+                <input type="range" id="outline" min="0" max="24" value="6">
+                <label class="check">
+                    <input type="color" id="outlineColor" value="#2b2118">
+                    외곽선 색
+                </label>
+            </div>
+
+            <div class="field">
+                <span class="field-label">배경 제거 방식</span>
+                <div class="segmented" id="methodSelect">
+                    <button type="button" data-value="ai" class="active">🤖 AI 정밀</button>
+                    <button type="button" data-value="color">🎨 단색 배경</button>
+                </div>
+                <p class="field-help">
+                    배경이 단색이면 "단색 배경"이 빠르고, 복잡하면 "AI 정밀"이 좋아요.
+                    처음 AI를 쓸 때는 모델(약 100MB)을 내려받아요.
+                </p>
+            </div>
+
+            <button id="downloadButton" class="primary" disabled>PNG 다운로드</button>
+        </section>
+
+        <!-- 미리보기 -->
+        <section class="panel preview">
+            <div class="preview-grid">
+                <figure>
+                    <figcaption>원본 사진 <span id="sourceSize"></span></figcaption>
+                    <div class="canvas-box" id="sourceBox">
+                        <span class="empty">컵 사진을 올려 주세요</span>
+                    </div>
+                </figure>
+                <figure>
+                    <figcaption>컵 일러스트 <span id="resultSize"></span></figcaption>
+                    <div class="canvas-box" id="resultBox">
+                        <span class="empty">여기에 결과가 나와요</span>
+                    </div>
+                </figure>
+            </div>
+
+            <div class="status" id="status" hidden>
+                <span id="statusText"></span>
+                <div class="progress"><div id="progressBar"></div></div>
+            </div>
+        </section>
+
+    </main>
+
+    <script src="imagekit.js"></script>
+    <script src="cup.js"></script>
+
+</body>
+</html>
