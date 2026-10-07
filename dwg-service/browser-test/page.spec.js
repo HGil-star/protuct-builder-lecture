@@ -19,6 +19,23 @@ test('unconfigured server disables analysis on desktop and mobile without horizo
   expect(errors).toEqual([]);
 });
 
+test('static hosting HTML fallback and malformed health responses show a clear unavailable state', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  for (const response of [
+    { status: 200, contentType: 'text/html; charset=utf-8', body: '<!DOCTYPE html><html><body>Static homepage fallback</body></html>' },
+    { status: 200, contentType: 'application/json', body: '{ invalid json' },
+    { status: 200, json: { ready: true } }
+  ]) {
+    await page.route('**/api/dwg/health', route => route.fulfill(response));
+    await page.goto('/index.html');
+    await expect(page.locator('#server-status')).toContainText('아직 변환 서비스가 연결되지 않았습니다');
+    await expect(page.locator('#server-status')).not.toContainText('Unexpected');
+    await expect(page.getByRole('button', { name: '도면 분석', exact: true })).toBeDisabled();
+    await page.unroute('**/api/dwg/health');
+  }
+  expect(errors).toEqual([]);
+});
+
 test('user can upload, inspect, reorder, exclude pages, change paper and request a PDF', async ({ page }) => {
   let state = 'review', selection;
   const pdf = await PDFDocument.create(); pdf.addPage([200, 100]); const pdfBytes = Buffer.from(await pdf.save());

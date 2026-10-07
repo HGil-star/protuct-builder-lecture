@@ -6,6 +6,13 @@
   const blobs = new Map();
   const message = (text, isError = false) => { $('message').textContent = text; $('message').classList.toggle('error', isError); };
   const endpoint = suffix => `${base}/api/dwg${suffix}`;
+  async function readJson(response) {
+    const contentType = response.headers.get('content-type') || '';
+    if (!/^application\/(?:json|[a-z0-9.+-]+\+json)(?:\s*;|$)/i.test(contentType))
+      throw new Error('변환 서비스의 응답을 확인할 수 없습니다. 잠시 후 다시 시도하세요.');
+    try { return await response.json(); }
+    catch { throw new Error('변환 서비스의 응답을 확인할 수 없습니다. 잠시 후 다시 시도하세요.'); }
+  }
   function setStep(step) { for (const name of ['upload', 'review', 'download']) { if (name === step) $(`step-${name}`).setAttribute('aria-current', 'step'); else $(`step-${name}`).removeAttribute('aria-current'); } }
   async function request(suffix, options = {}) {
     const response = await fetch(endpoint(suffix), { ...options, headers: { ...(job ? { 'X-Job-Token': job.token } : {}), ...options.headers } });
@@ -77,7 +84,7 @@
     if (polling) return; polling = true; const activeJob = job;
     try {
       while (job === activeJob && job) {
-        const data = await (await request(`/jobs/${job.id}`)).json(); if (job !== activeJob) break;
+        const data = await readJson(await request(`/jobs/${job.id}`)); if (job !== activeJob) break;
         message(data.message, ['failed', 'empty'].includes(data.state));
         if (data.state === 'review') {
           frames = data.frames; initialOrder = frames.map(f => f.id); selected = new Set(initialOrder);
@@ -107,7 +114,7 @@
     const paper = $('paper').value; const space = $('space').value;
     toggleBusy(true); message('파일을 업로드하고 있습니다.');
     try {
-      job = await (await request('/jobs', { method: 'POST', body: formData })).json();
+      job = await readJson(await request('/jobs', { method: 'POST', body: formData }));
       $('output-paper').value = paper; $('output-paper').querySelector('[value="layout"]').disabled = space !== 'layouts';
       toggleBusy(true); void poll();
     } catch (err) { toggleBusy(false); message(err.message, true); }
@@ -131,11 +138,20 @@
       if (base && !/^https:\/\//.test(base) && !/^http:\/\/localhost(?::\d+)?$/.test(base)) throw new Error('API 주소 설정을 확인하세요.');
       const response = await fetch(endpoint('/health'), { signal: AbortSignal.timeout(10000) });
       if (!response.ok) throw new Error('변환 서버에 연결할 수 없습니다.');
-      const health = await response.json(); ready = health.ready === true;
-      $('server-status').textContent = ready ? `변환 서버 연결됨 · 파일당 최대 ${health.maxUploadMB} MB` : '변환 서버 준비 중입니다. APS 연결 설정이 완료되면 도면을 분석할 수 있습니다.';
+      const health = await readJson(response);
+      if (!health || typeof health.ready !== 'boolean' || !Number.isFinite(health.maxUploadMB) || health.maxUploadMB <= 0 || !Number.isFinite(health.retentionMinutes) || health.retentionMinutes <= 0)
+        throw new Error('변환 서비스 상태를 확인할 수 없습니다.');
+      ready = health.ready;
+      $('server-status').textContent = ready ? `변환 서버 연결됨 · 파일당 최대 ${health.maxUploadMB} MB` : '변환 서버 준비 중입니다. 연결이 완료되면 도면 분석과 PDF 생성을 사용할 수 있습니다.';
       $('retention').textContent = `업로드 파일은 최종 변환 완료 후 삭제합니다. 분석 대기 파일과 PDF도 작업 시작 후 최대 ${health.retentionMinutes}분 내 만료되며, 만료 후 정리됩니다.`;
       toggleBusy(false);
-    } catch (err) { ready = false; $('server-status').textContent = `변환 서버 연결이 필요합니다. ${err.message} 서버 설정 후 이 페이지를 새로고침하세요.`; toggleBusy(false); }
+    } catch {
+      ready = false;
+      $('server-status').textContent = base
+        ? '변환 서비스에 연결하지 못했습니다. 잠시 후 페이지를 새로고침해 주세요. 현재는 파일 선택만 가능하며, 도면 분석과 PDF 생성은 사용할 수 없습니다.'
+        : '아직 변환 서비스가 연결되지 않았습니다. 현재는 화면과 파일 선택만 확인할 수 있습니다. 서비스 연결 후 도면 분석과 PDF 생성을 사용할 수 있습니다.';
+      toggleBusy(false);
+    }
   }
   void connect();
 })();
