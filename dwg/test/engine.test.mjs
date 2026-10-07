@@ -74,7 +74,7 @@ test('줄바꿈이 섞인 문자열로 깨진 DXF를 복구해 읽는다 (Invali
   const result = await engine.analyze(broken, 'broken-strings.dxf', 'model');
   assert.equal(result.pages.length, 4);
   assert.deepEqual(result.pages.slice(0, 2).map(p => [p.name, p.number]), [['1층 평면도', 'A-101 굴림'], ['정면도', 'A-201']]);
-  assert.match(result.warnings[0], /깨진 문자열 3곳을 복구/);
+  assert.match(result.warnings[0], /읽을 수 없는 부분 3곳을 복구/);
 });
 
 for (const [file, names, space] of [
@@ -91,3 +91,10 @@ for (const [file, names, space] of [
     ]);
   });
 }
+
+test('핸들이 0인 객체가 있는 DXF를 복구해 읽는다 (Invalid handle 0)', async () => {
+  const result = await engine.analyze(await fixture('zero-handle.dxf'), 'zero-handle.dxf', 'model');
+  assert.equal(result.pages.length, 4);
+  assert.deepEqual([result.pages[0].name, result.pages[0].number], ['1층 평면도', 'A-101']);
+  assert.match(result.warnings[0], /읽을 수 없는 부분 1곳을 복구/);
+});

@@ -52,12 +52,20 @@ def _is_group_code(line: bytes) -> bool:
     return 0 < len(line) <= 6 and line.lstrip(b"-").isdigit()
 
 
-def _repair_dxf(path: str) -> int:
-    """LibreDWG가 줄바꿈이 섞인 문자열을 그대로 써서 깨진 DXF 줄 구조를 복구합니다.
+def _valid_handle(value: bytes) -> bool:
+    value = value.strip()
+    try:
+        return int(value, 16) > 0
+    except ValueError:
+        return False
 
-    LibreDWG의 줄 끝은 항상 CRLF이므로 CRLF로만 줄을 나누고, 값 안의 단독 LF/CR은
-    공백으로 바꿉니다. 그래도 그룹 코드 자리에 값이 오면 앞 값의 이어지는 부분으로 합칩니다.
-    고친 곳의 수를 돌려줍니다.
+
+def _repair_dxf(path: str) -> int:
+    """LibreDWG 출력에서 ezdxf가 읽지 못하는 부분을 고치고, 고친 곳의 수를 돌려줍니다.
+
+    1) 줄바꿈이 섞인 문자열: LibreDWG의 줄 끝은 항상 CRLF이므로 CRLF로만 줄을 나누고,
+       값 안의 단독 LF/CR은 공백으로 바꿉니다. 그래도 그룹 코드 자리에 값이 오면 앞 값에 합칩니다.
+    2) 핸들이 0이거나 잘못된 객체: 쓰지 않는 새 핸들을 붙이고 $HANDSEED를 늘립니다.
     """
     with open(path, "rb") as f:
         data = f.read()
@@ -81,6 +89,30 @@ def _repair_dxf(path: str) -> int:
             fixes += 1
         out += [code.strip(), value]
         i += 2
+
+    # 객체 핸들(그룹 코드 5, DIMSTYLE은 105)이 0이거나 16진수가 아니면 새 핸들 부여
+    seed_at = None
+    used = 0
+    bad = []
+    for k in range(0, len(out) - 1, 2):
+        code, value = out[k], out[k + 1]
+        if code == b"9" and value.strip() == b"$HANDSEED":
+            seed_at = k + 3  # 다음 쌍(5, 값)의 값
+        elif code in (b"5", b"105") and k + 1 != seed_at:
+            if k >= 2 and out[k - 2] == b"0":  # 객체 시작(0, 종류) 바로 다음의 핸들만
+                if _valid_handle(value):
+                    used = max(used, int(value.strip(), 16))
+                else:
+                    bad.append(k + 1)
+    if seed_at is not None and seed_at < len(out) and _valid_handle(out[seed_at]):
+        used = max(used, int(out[seed_at].strip(), 16) - 1)
+    for k in bad:
+        used += 1
+        out[k] = b"%X" % used
+    if bad and seed_at is not None and seed_at < len(out):
+        out[seed_at] = b"%X" % (used + 1)
+    fixes += len(bad)
+
     with open(path, "wb") as f:
         f.write(b"\n".join(out) + b"\n")
     return fixes
@@ -90,12 +122,12 @@ def _read(path: str):
     """DXF를 읽고 (문서, 복구한 곳 수)를 돌려줍니다.
 
     ezdxf recover는 LibreDWG의 \\U+XXXX 한글 표기를 풀고 잘못된 객체를 고쳐 주므로
-    일반 읽기보다 느려도 이것을 씁니다. 줄 구조가 깨졌으면 복구 후 다시 읽습니다.
+    일반 읽기보다 느려도 이것을 씁니다. 읽지 못하면 _repair_dxf로 고친 뒤 다시 읽습니다.
     """
     try:
         doc, _ = recover.readfile(path)
         return doc, 0
-    except DXFStructureError:
+    except (DXFStructureError, ValueError):
         fixes = _repair_dxf(path)
         doc, _ = recover.readfile(path)
         return doc, fixes
@@ -104,7 +136,7 @@ def _read(path: str):
 def _repair_warning(fixes: int, what: str) -> list[str]:
     if not fixes:
         return []
-    return [f"{what}의 DWG 변환 결과에서 깨진 문자열 {fixes}곳을 복구했습니다. 줄바꿈이 포함된 글자는 한 줄로 표시될 수 있습니다."]
+    return [f"{what}의 DWG 변환 결과에서 읽을 수 없는 부분 {fixes}곳을 복구했습니다(깨진 문자열·잘못된 객체 번호). 줄바꿈이 포함된 글자는 한 줄로 표시될 수 있습니다."]
 
 
 # --------------------------------------------------------------- 도곽 검출
