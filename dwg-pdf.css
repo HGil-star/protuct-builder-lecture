@@ -2,3 +2,4 @@
 .check{display:flex;align-items:center;gap:9px;margin-top:18px;font-size:14px}.check input{width:19px;height:19px;accent-color:#a8beff}
 .thumb{display:flex;align-items:center;justify-content:center;height:170px;background:#fff;margin:16px 0 10px;border-radius:7px;overflow:hidden;color:#6b7690;font-size:12px}.thumb img{display:block;max-width:100%;max-height:100%}
 .privacy a{color:var(--accent);text-decoration:underline}
+.optional{font-style:normal;font-weight:400;color:var(--muted);font-size:13px}

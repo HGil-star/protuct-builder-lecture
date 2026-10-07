@@ -24,11 +24,14 @@ self.onmessage = async ({ data }) => {
     await ready;
     let result, transfer = [];
     if (type === 'init') result = true;
-    else if (type === 'analyze') result = await engine.analyze(new Uint8Array(data.file), data.name, data.mode);
+    else if (type === 'analyze') result = await engine.analyze(new Uint8Array(data.file), data.name, data.mode, data.reference ? { bytes: new Uint8Array(data.reference.file), name: data.reference.name } : null);
     else if (type === 'thumbnail') result = engine.thumbnail(data.page, data.mono);
     else if (type === 'pdf') { result = engine.pdf(data.pages, data.paper, data.mono); transfer = [result.buffer]; }
     postMessage({ id, ok: true, result }, transfer);
   } catch (err) {
-    postMessage({ id, ok: false, error: String(err?.message || err).replace(/^PythonError:\s*/, '').split('\n').filter(Boolean).slice(-3).join('\n') });
+    const text = String(err?.message || err);
+    // Python 예외는 마지막 줄(예: "ValueError: 메시지")만 보여줌
+    const error = err?.type || text.startsWith('PythonError') ? text.trim().split('\n').at(-1).replace(/^\w+(Error|Exception):\s*/, '') : text;
+    postMessage({ id, ok: false, error });
   }
 };

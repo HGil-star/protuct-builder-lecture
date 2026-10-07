@@ -43,13 +43,21 @@ dwg_sheets.setup_fonts('/app/fonts', '${FONT}')
   const toJs = value => { const out = value.toJs({ dict_converter: Object.fromEntries }); value.destroy?.(); return out; };
 
   return {
-    async analyze(bytes, name, mode) {
-      const isDwg = /\.dwg$/i.test(name);
-      if (isDwg) progress('DWG를 읽는 중');
-      const dxf = isDwg ? await toDxf(bytes) : bytes;
+    async analyze(bytes, name, mode, reference = null) {
+      const readDxf = async (data, fileName, label) => {
+        if (!/\.dwg$/i.test(fileName)) return data;
+        progress(`${label} DWG를 읽는 중`);
+        return toDxf(data);
+      };
+      let refInfo = null;
+      if (reference && mode === 'model') {
+        py.FS.writeFile('/work/ref.dxf', await readDxf(reference.bytes, reference.name, '기준 도곽'));
+        try { refInfo = toJs(sheets.reference('/work/ref.dxf')); }
+        finally { py.FS.unlink('/work/ref.dxf'); }
+      }
+      py.FS.writeFile('/work/in.dxf', await readDxf(bytes, name, '도면'));
       progress('도곽을 찾는 중');
-      py.FS.writeFile('/work/in.dxf', dxf);
-      try { return toJs(sheets.analyze('/work/in.dxf', mode)); }
+      try { return { ...toJs(sheets.analyze('/work/in.dxf', mode, Boolean(refInfo))), reference: refInfo }; }
       finally { py.FS.unlink('/work/in.dxf'); }
     },
     thumbnail(id, mono) { return sheets.thumbnail(id, mono); },

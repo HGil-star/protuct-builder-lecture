@@ -91,22 +91,27 @@
   }
 
   $('drawing').addEventListener('change', () => { $('drawing-name').textContent = $('drawing').files[0]?.name || '선택한 파일 없음'; });
-  $('space').addEventListener('change', () => { const layoutOption = $('paper').querySelector('[value="layout"]'); layoutOption.disabled = $('space').value !== 'layouts'; if (layoutOption.disabled && $('paper').value === 'layout') $('paper').value = 'A3'; });
+  $('reference').addEventListener('change', () => { $('reference-name').textContent = $('reference').files[0]?.name || '선택하지 않으면 자동 검출'; });
+  $('space').addEventListener('change', () => { const layoutOption = $('paper').querySelector('[value="layout"]'); layoutOption.disabled = $('space').value !== 'layouts'; $('reference').disabled = $('space').value === 'layouts'; if (layoutOption.disabled && $('paper').value === 'layout') $('paper').value = 'A3'; });
   $('space').dispatchEvent(new Event('change'));
   $('upload-form').addEventListener('submit', async event => {
     event.preventDefault(); if (!ready || busy) return;
     const file = $('drawing').files[0];
-    if (!file || !/\.(dwg|dxf)$/i.test(file.name)) return message('DWG 또는 DXF 파일을 선택하세요.', true);
+    if (!file || !/\.(dwg|dxf)$/i.test(file.name)) return message('DWG 또는 DXF 도면 파일을 선택하세요.', true);
+    const refFile = $('space').value === 'model' ? $('reference').files[0] : null;
+    if (refFile && !/\.(dwg|dxf)$/i.test(refFile.name)) return message('기준 도곽 파일은 DWG 또는 DXF여야 합니다.', true);
     mode = $('space').value; fileName = file.name.replace(/\.(dwg|dxf)$/i, '') || 'drawing';
     const paper = $('paper').value;
     toggleBusy(true); message('도면을 읽고 있습니다…');
     try {
-      const buffer = await file.arrayBuffer();
-      const result = await run('analyze', { file: buffer, name: file.name, mode }, [buffer]);
+      const buffer = await file.arrayBuffer(), refBuffer = refFile ? await refFile.arrayBuffer() : null;
+      const reference = refBuffer ? { file: refBuffer, name: refFile.name } : null;
+      const result = await run('analyze', { file: buffer, name: file.name, mode, reference }, refBuffer ? [buffer, refBuffer] : [buffer]);
       frames = result.pages; initialOrder = frames.map(f => f.id); selected = new Set(initialOrder);
       $('output-paper').value = paper; $('output-paper').querySelector('[value="layout"]').disabled = mode !== 'layouts';
       warnings(result.warnings); $('review').hidden = false;
-      message(frames.length ? `${frames.length}개 페이지를 찾았습니다. 미리보기를 확인하세요.` : '출력할 페이지를 찾지 못했습니다.', !frames.length);
+      const basis = result.reference ? `기준 도곽(${result.reference.names.join(', ') || '형상'} · ${result.reference.width.toFixed(0)} × ${result.reference.height.toFixed(0)})과 같은 ` : '';
+      message(frames.length ? `${basis}${frames.length}개 페이지를 찾았습니다. 미리보기를 확인하세요.` : '출력할 페이지를 찾지 못했습니다.', !frames.length);
       toggleBusy(false); render(); setStep('review'); void drawThumbnails();
     } catch (err) { frames = []; $('review').hidden = true; toggleBusy(false); message(err.message, true); }
   });

@@ -29,6 +29,7 @@ PAPERS = {"A4": (297, 210), "A3": (420, 297), "A2": (594, 420), "A1": (841, 594)
 MAX_PAGES = 300
 
 _doc = None
+_reference: dict | None = None
 _pages: list[dict] = []
 _cache = None
 
@@ -72,6 +73,43 @@ def _polyline_points(e) -> list[Vec2] | None:
     return None
 
 
+def _line_rects(entities, limit: int = 200_000) -> list[BoundingBox2d]:
+    """축에 나란한 LINE 4개로 이루어진 사각형(분해된 도곽)을 찾습니다."""
+    q = lambda v: round(v, 3)
+    spans: dict[tuple, list[float]] = {}
+    verticals = set()
+    for e in entities:
+        if e.dxftype() != "LINE":
+            continue
+        a, b = Vec2(e.dxf.start), Vec2(e.dxf.end)
+        if abs(a.y - b.y) < 1e-6 and abs(a.x - b.x) > 1e-6:
+            spans.setdefault((q(min(a.x, b.x)), q(max(a.x, b.x))), []).append(q(a.y))
+        elif abs(a.x - b.x) < 1e-6 and abs(a.y - b.y) > 1e-6:
+            verticals.add((q(a.x), q(min(a.y, b.y)), q(max(a.y, b.y))))
+    out, checked = [], 0
+    for (x0, x1), ys in spans.items():
+        ys = sorted(set(ys))
+        for i, y0 in enumerate(ys):
+            for y1 in ys[i + 1:]:
+                checked += 1
+                if checked > limit:
+                    return out
+                if (x0, y0, y1) in verticals and (x1, y0, y1) in verticals:
+                    out.append(BoundingBox2d([(x0, y0), (x1, y1)]))
+    return out
+
+
+def _rects(entities) -> list[BoundingBox2d]:
+    entities = list(entities)
+    out = []
+    for e in entities:
+        pts = _polyline_points(e)
+        box = _rect_box(pts) if pts else None
+        if box:
+            out.append(box)
+    return out + _line_rects(entities)
+
+
 def _is_xref(block) -> bool:
     try:
         return bool(block.block.dxf.flags & 4)
@@ -91,10 +129,8 @@ def _block_border(block) -> BoundingBox2d | None:
         return None
     full = BoundingBox2d([ext.extmin, ext.extmax])
     best = None
-    for e in block:
-        pts = _polyline_points(e)
-        box = _rect_box(pts) if pts else None
-        if box and box.size.x >= full.size.x * 0.97 and box.size.y >= full.size.y * 0.97:
+    for box in _rects(block):
+        if box.size.x >= full.size.x * 0.97 and box.size.y >= full.size.y * 0.97:
             if best is None or box.size.x * box.size.y > best.size.x * best.size.y:
                 best = box
     return best
@@ -141,17 +177,16 @@ def _find_frames(msp) -> tuple[list[dict], list[str]]:
         name, number = _attribs(ins)
         found.append({"box": box, "source": "블록", "block": bname, "name": name, "number": number})
 
-    rects = []
-    for e in msp:
-        pts = _polyline_points(e)
-        box = _rect_box(pts) if pts else None
-        if box and abs(_ratio(box) - 2 ** 0.5) < 0.03:  # A계열 용지 비율
-            rects.append({"box": box, "source": "사각형", "block": "", "name": "", "number": ""})
+    rects = [{"box": box, "source": "사각형", "block": "", "name": "", "number": ""}
+             for box in _rects(msp) if abs(_ratio(box) - 2 ** 0.5) < 0.03]  # A계열 용지 비율
     if rects:
         areas = [f["box"].size.x * f["box"].size.y for f in found]
         limit = min(areas) * 0.5 if areas else max(r["box"].size.x * r["box"].size.y for r in rects) * 0.2
         found += [r for r in rects if r["box"].size.x * r["box"].size.y >= limit]
+    return _arrange(found)
 
+
+def _arrange(found: list[dict]) -> tuple[list[dict], list[str]]:
     # 다른 도곽 안의 사각형(내곽선·표 등)과 같은 위치의 중복 제거
     found.sort(key=lambda f: -(f["box"].size.x * f["box"].size.y))
     frames: list[dict] = []
@@ -179,13 +214,105 @@ def _find_frames(msp) -> tuple[list[dict], list[str]]:
     return frames, warnings
 
 
+def _normalize(inner: BoundingBox2d, outer: BoundingBox2d) -> tuple[float, float, float, float]:
+    w, h = outer.size.x, outer.size.y
+    return ((inner.extmin.x - outer.extmin.x) / w, (inner.extmin.y - outer.extmin.y) / h,
+            (inner.extmax.x - outer.extmin.x) / w, (inner.extmax.y - outer.extmin.y) / h)
+
+
+def _layout_of(outer: BoundingBox2d, rects: Iterable[BoundingBox2d]) -> list[tuple]:
+    """outer 안 사각형(표제란·내곽선 등)의 상대 위치. 큰 것부터 최대 8개."""
+    tol = max(outer.size.x, outer.size.y) * 0.002
+    area = outer.size.x * outer.size.y
+    inner = [r for r in rects if _contains(outer, r, tol) and r.size.x * r.size.y < area * 0.995
+             and r.size.x * r.size.y > area * 0.002]
+    inner.sort(key=lambda r: -(r.size.x * r.size.y))
+    return [_normalize(r, outer) for r in inner[:8]]
+
+
+def reference(dxf_path: str) -> dict:
+    """기준 도곽 파일에서 도곽의 블록 이름·가로세로 비율·내부 구획을 읽습니다."""
+    global _reference
+    doc, _ = recover.readfile(dxf_path)
+    msp = doc.modelspace()
+    ext = bbox.extents(msp)
+    if not ext.has_data:
+        raise ValueError("기준 도곽 파일이 비어 있습니다.")
+    full = BoundingBox2d([ext.extmin, ext.extmax])
+    names, candidates = set(), []
+    for ins in msp.query("INSERT"):
+        block = ins.block()
+        if block is None or _is_xref(block):
+            continue
+        e = bbox.extents([ins])
+        if e.has_data and (e.size.x * e.size.y) >= full.size.x * full.size.y * 0.8:
+            names.add(block.name)
+            border = _block_border(block)
+            if border is not None:
+                candidates.append((border, _rects(block)))
+    raw = _rects(msp)
+    for r in raw:
+        if r.size.x >= full.size.x * 0.9 and r.size.y >= full.size.y * 0.9:
+            candidates.append((r, raw))
+    if not candidates:
+        raise ValueError("기준 도곽 파일에서 도곽 테두리(닫힌 사각형)를 찾지 못했습니다. 도곽 하나만 그려진 파일을 선택하세요.")
+    outer, rects = max(candidates, key=lambda c: c[0].size.x * c[0].size.y)
+    _reference = {"names": sorted(names), "ratio": outer.size.x / outer.size.y, "inner": _layout_of(outer, rects),
+                  "width": outer.size.x, "height": outer.size.y}
+    return {k: v for k, v in _reference.items() if k != "inner"} | {"innerCount": len(_reference["inner"])}
+
+
+def _same_layout(ref_inner: list[tuple], inner: list[tuple]) -> bool:
+    """기준 도곽의 내부 구획 중 절반 이상이 같은 상대 위치에 있으면 같은 도곽."""
+    if not ref_inner:
+        return True
+    hit = sum(1 for r in ref_inner if any(all(abs(a - b) < 0.012 for a, b in zip(r, c)) for c in inner))
+    return hit * 2 >= len(ref_inner)
+
+
+def _match_reference(msp) -> tuple[list[dict], list[str]]:
+    ref = _reference
+    names = set(ref["names"])
+    found: list[dict] = []
+    borders: dict[str, tuple] = {}
+    for ins in msp.query("INSERT"):
+        block = ins.block()
+        if block is None or _is_xref(block):
+            continue
+        if block.name not in borders:
+            border = _block_border(block)
+            ok = block.name in names or (
+                border is not None and abs(border.size.x / border.size.y / ref["ratio"] - 1) < 0.01
+                and _same_layout(ref["inner"], _layout_of(border, _rects(block))))
+            borders[block.name] = (border, ok)
+        border, ok = borders[block.name]
+        if not ok:
+            continue
+        if border is not None:
+            corners = [border.extmin, Vec2(border.extmax.x, border.extmin.y), border.extmax, Vec2(border.extmin.x, border.extmax.y)]
+            box = BoundingBox2d(Vec2(p) for p in ins.matrix44().transform_vertices(corners))
+        else:
+            e = bbox.extents([ins], cache=_cache)
+            if not e.has_data:
+                continue
+            box = BoundingBox2d([e.extmin, e.extmax])
+        name, number = _attribs(ins)
+        found.append({"box": box, "source": "기준 블록", "block": block.name, "name": name, "number": number})
+
+    raw = _rects(msp)
+    for r in raw:
+        if abs(r.size.x / r.size.y / ref["ratio"] - 1) < 0.01 and _same_layout(ref["inner"], _layout_of(r, raw)):
+            found.append({"box": r, "source": "기준 형상", "block": "", "name": "", "number": ""})
+    return _arrange(found)
+
+
 def _contains(outer: BoundingBox2d, inner: BoundingBox2d, tol: float) -> bool:
     return (outer.extmin.x - tol <= inner.extmin.x and outer.extmin.y - tol <= inner.extmin.y
             and inner.extmax.x <= outer.extmax.x + tol and inner.extmax.y <= outer.extmax.y + tol)
 
 
 # ------------------------------------------------------------------- 분석
-def analyze(dxf_path: str, mode: str = "model") -> dict:
+def analyze(dxf_path: str, mode: str = "model", use_reference: bool = False) -> dict:
     """도면을 읽고 페이지 후보 목록을 돌려줍니다."""
     global _doc, _pages, _cache
     _doc, auditor = recover.readfile(dxf_path)
@@ -210,14 +337,17 @@ def analyze(dxf_path: str, mode: str = "model") -> dict:
         if not _pages:
             warnings.append("내용이 있는 Layout이 없습니다. Model Space 도곽 검출을 사용하세요.")
     else:
-        frames, more = _find_frames(_doc.modelspace())
+        if use_reference and _reference is None:
+            raise ValueError("기준 도곽 파일을 먼저 읽어야 합니다.")
+        frames, more = (_match_reference if use_reference else _find_frames)(_doc.modelspace())
         warnings += more
         for i, f in enumerate(frames, 1):
             b = f["box"]
             _pages.append({"id": f"P{i}", "box": b, "name": f["name"] or f["block"], "number": f["number"],
                            "source": f["source"], "width": b.size.x, "height": b.size.y})
         if not _pages:
-            warnings.append("도곽을 찾지 못했습니다. 도곽이 닫힌 사각형(폴리라인)이나 블록으로 그려져 있는지 확인하세요.")
+            warnings.append("기준 도곽과 같은 도곽을 찾지 못했습니다. 기준 파일과 도면의 도곽이 같은 양식인지 확인하세요." if use_reference
+                            else "도곽을 찾지 못했습니다. 도곽이 닫힌 사각형(폴리라인)이나 블록으로 그려져 있는지 확인하세요.")
     return {"pages": [{k: v for k, v in p.items() if k != "box"} for p in _pages], "warnings": warnings}
 
 
