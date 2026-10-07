@@ -74,8 +74,9 @@
     }
   }
   async function makePdf(ids, paper) {
-    const bytes = await run('pdf', { pages: ids, paper, mono: $('mono').checked });
-    return new Blob([bytes], { type: 'application/pdf' });
+    const { bytes, skipped } = await run('pdf', { pages: ids, paper, mono: $('mono').checked });
+    const blob = new Blob([bytes], { type: 'application/pdf' }); blob.skipped = skipped;
+    return blob;
   }
   function disposePreview() { $('preview-frame').src = 'about:blank'; revoke(previewUrl); previewUrl = null; $('preview-link').removeAttribute('href'); }
   async function preview(frame, index) {
@@ -122,7 +123,7 @@
       const ids = frames.filter(f => selected.has(f.id)).map(f => f.id);
       const blob = await makePdf(ids, $('output-paper').value);
       revoke(pdfUrl); pdfUrl = URL.createObjectURL(blob);
-      $('download-info').textContent = `${ids.length}페이지 · ${blob.size < 1048576 ? `${Math.ceil(blob.size / 1024)} KB` : `${(blob.size / 1048576).toFixed(1)} MB`}`;
+      $('download-info').textContent = `${ids.length}페이지 · ${blob.size < 1048576 ? `${Math.ceil(blob.size / 1024)} KB` : `${(blob.size / 1048576).toFixed(1)} MB`}${blob.skipped ? ` · 손상되어 그리지 못한 객체 ${blob.skipped}개 제외` : ''}`;
       $('download-panel').hidden = false; message(''); setStep('download');
     } catch (err) { message(err.message, true); }
     finally { toggleBusy(false); }

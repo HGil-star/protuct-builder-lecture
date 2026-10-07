@@ -67,7 +67,11 @@ dwg_sheets.setup_fonts('/app/fonts', '${FONT}')
     thumbnail(id, mono) { return sheets.thumbnail(id, mono); },
     pdf(ids, paper, mono) {
       const list = py.toPy(ids);
-      try { const proxy = sheets.render_pdf(list, paper, mono); const bytes = proxy.toJs(); proxy.destroy(); return bytes; }
+      try {
+        sheets.take_skipped();
+        const proxy = sheets.render_pdf(list, paper, mono); const bytes = proxy.toJs(); proxy.destroy();
+        return { bytes, skipped: sheets.take_skipped() };
+      }
       finally { list.destroy(); }
     },
   };

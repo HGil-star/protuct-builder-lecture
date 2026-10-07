@@ -60,12 +60,69 @@ def _valid_handle(value: bytes) -> bool:
         return False
 
 
+TABLE_ENTRIES = {b"LAYER", b"LTYPE", b"STYLE", b"BLOCK_RECORD", b"DIMSTYLE", b"APPID", b"UCS", b"VIEW", b"VPORT"}
+
+
+def _name_table_entries(pairs: list[bytes]) -> tuple[list[bytes], int]:
+    """TABLES 섹션에서 이름(그룹 코드 2)이 없거나 빈 항목에 고유한 이름을 붙입니다."""
+    block_names: dict[bytes, bytes] = {}  # 블록 레코드 핸들 → BLOCK 이름
+    for k in range(0, len(pairs) - 1, 2):
+        if pairs[k] == b"0" and pairs[k + 1].strip() == b"BLOCK":
+            owner = name = None
+            j = k + 2
+            while j < len(pairs) - 1 and pairs[j] != b"0":
+                if pairs[j] == b"330" and owner is None:
+                    owner = pairs[j + 1].strip()
+                elif pairs[j] == b"2" and name is None and pairs[j + 1].strip():
+                    name = pairs[j + 1].strip()
+                j += 2
+            if owner and name:
+                block_names[owner] = name
+    out: list[bytes] = []
+    fixed = 0
+    in_tables = False
+    k = 0
+    n = len(pairs)
+    while k < n - 1:
+        code, value = pairs[k], pairs[k + 1]
+        if code == b"2" and k >= 2 and pairs[k - 2] == b"0" and pairs[k - 1].strip() == b"SECTION":
+            in_tables = value.strip() == b"TABLES"
+        if not (in_tables and code == b"0" and value.strip() in TABLE_ENTRIES):
+            out += [code, value]
+            k += 2
+            continue
+        # 항목 하나: 다음 (0, ...)까지
+        end = k + 2
+        while end < n - 1 and pairs[end] != b"0":
+            end += 2
+        entry = pairs[k:end]
+        names = [i for i in range(2, len(entry) - 1, 2) if entry[i] == b"2"]
+        if not names or not entry[names[0] + 1].strip():
+            handle = next((entry[i + 1].strip() for i in range(2, len(entry) - 1, 2) if entry[i] in (b"5", b"105")), b"%d" % k)
+            # 블록 레코드는 BLOCKS 섹션의 BLOCK(소유자=이 레코드)에 원래 이름이 있음
+            name = block_names.get(handle) if value.strip() == b"BLOCK_RECORD" else None
+            name = name or "_이름없음_".encode() + handle
+            if names:
+                entry[names[0] + 1] = name
+            else:
+                # 이름은 마지막 하위 클래스 표시(예: AcDbLinetypeTableRecord) 다음에 와야 함
+                marker = next((i for i in range(len(entry) - 2, 1, -2) if entry[i] == b"100" and entry[i + 1].strip().endswith(b"TableRecord")), None)
+                at = marker + 2 if marker is not None else len(entry)
+                entry[at:at] = [b"2", name]
+            fixed += 1
+        out += entry
+        k = end
+    out += pairs[k:]
+    return out, fixed
+
+
 def _repair_dxf(path: str) -> int:
     """LibreDWG 출력에서 ezdxf가 읽지 못하는 부분을 고치고, 고친 곳의 수를 돌려줍니다.
 
     1) 줄바꿈이 섞인 문자열: LibreDWG의 줄 끝은 항상 CRLF이므로 CRLF로만 줄을 나누고,
        값 안의 단독 LF/CR은 공백으로 바꿉니다. 그래도 그룹 코드 자리에 값이 오면 앞 값에 합칩니다.
-    2) 핸들이 0이거나 잘못된 객체: 쓰지 않는 새 핸들을 붙이고 $HANDSEED를 늘립니다.
+    2) 이름이 없는 레이어·선종류·블록 등 테이블 항목: 고유한 이름을 붙입니다.
+    3) 핸들이 0이거나 잘못된 객체: 쓰지 않는 새 핸들을 붙이고 $HANDSEED를 늘립니다.
     """
     with open(path, "rb") as f:
         data = f.read()
@@ -89,6 +146,9 @@ def _repair_dxf(path: str) -> int:
             fixes += 1
         out += [code.strip(), value]
         i += 2
+
+    out, named = _name_table_entries(out)
+    fixes += named
 
     # 객체 핸들(그룹 코드 5, DIMSTYLE은 105)이 0이거나 16진수가 아니면 새 핸들 부여
     seed_at = None
@@ -126,17 +186,36 @@ def _read(path: str):
     """
     try:
         doc, _ = recover.readfile(path)
-        return doc, 0
-    except (DXFStructureError, ValueError):
+        fixes = 0
+    except Exception:  # 줄 구조·핸들 0·이름 없는 테이블 항목 등
         fixes = _repair_dxf(path)
         doc, _ = recover.readfile(path)
-        return doc, fixes
+    return doc, fixes + _clean_names(doc)
+
+
+def _clean_names(doc) -> int:
+    """레이어·선종류 이름이 비어 있는 객체를 렌더링할 수 있게 고칩니다."""
+    fixed = 0
+    for e in doc.entitydb.values():
+        dxf = getattr(e, "dxf", None)
+        if dxf is None or not e.is_alive:
+            continue
+        try:
+            if dxf.hasattr("layer") and not isinstance(dxf.layer, str):
+                dxf.layer = "0"
+                fixed += 1
+            if dxf.hasattr("linetype") and not isinstance(dxf.linetype, str):
+                dxf.discard("linetype")
+                fixed += 1
+        except Exception:
+            pass
+    return fixed
 
 
 def _repair_warning(fixes: int, what: str) -> list[str]:
     if not fixes:
         return []
-    return [f"{what}의 DWG 변환 결과에서 읽을 수 없는 부분 {fixes}곳을 복구했습니다(깨진 문자열·잘못된 객체 번호). 줄바꿈이 포함된 글자는 한 줄로 표시될 수 있습니다."]
+    return [f"{what}의 DWG 변환 결과에서 읽을 수 없는 부분 {fixes}곳을 복구했습니다(깨진 문자열·잘못된 객체 번호·이름 없는 레이어/블록 등). 줄바꿈이 포함된 글자는 한 줄로 표시될 수 있습니다."]
 
 
 # --------------------------------------------------------------- 도곽 검출
@@ -741,6 +820,7 @@ class EntityIndex:
 
 
 _entity_index: EntityIndex | None = None
+_skipped = 0  # 그리지 못하고 건너뛴 객체 수 (render_pdf가 보고)
 
 
 def _record(page: dict, mono: bool, backend) -> tuple:
@@ -762,7 +842,12 @@ def _record(page: dict, mono: bool, backend) -> tuple:
     ctx.set_current_layout(msp)
     frontend.set_background(ctx.current_layout_properties.background_color)
     frontend.parent_stack = []
-    frontend.draw_entities(_entity_index.select(render_box))
+    global _skipped
+    for e in _entity_index.select(render_box):
+        try:
+            frontend.draw_entities([e])
+        except Exception:  # 손상된 객체 하나 때문에 페이지 전체가 실패하지 않게
+            _skipped += 1
     frontend.pipeline.finalize()
     return None, render_box
 
@@ -784,6 +869,13 @@ def thumbnail(page_id: str, mono: bool = True) -> str:
     w = 240 if ratio >= 1 else 240 * ratio
     out = layout.Page(w, w / ratio if ratio >= 1 else 240, layout.Units.mm)
     return be.get_string(out, settings=layout.Settings(fit_page=True, output_coordinate_space=1200), render_box=box, xml_declaration=False)
+
+
+def take_skipped() -> int:
+    """마지막 확인 이후 그리지 못하고 건너뛴 객체 수를 돌려주고 0으로 되돌립니다."""
+    global _skipped
+    count, _skipped = _skipped, 0
+    return count
 
 
 def render_pdf(page_ids: Iterable[str], paper: str = "A3", mono: bool = True) -> bytes:

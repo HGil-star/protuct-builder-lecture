@@ -25,7 +25,9 @@ test('DWG에서 도곽 4개를 순서대로 찾는다', async () => {
 });
 
 test('선택한 순서대로 용지 크기의 PDF 페이지를 만든다', async () => {
-  const pdf = Buffer.from(engine.pdf(['P3', 'P1'], 'A4', true)).toString('latin1');
+  const { bytes, skipped } = engine.pdf(['P3', 'P1'], 'A4', true);
+  assert.equal(skipped, 0);
+  const pdf = Buffer.from(bytes).toString('latin1');
   assert.match(pdf, /^%PDF-1\.4/);
   assert.match(pdf, /\/Count 2/);
   assert.equal(pdf.match(/\/MediaBox \[0 0 841\.89 595\.28\]/g).length, 2);
@@ -98,3 +100,12 @@ test('핸들이 0인 객체가 있는 DXF를 복구해 읽는다 (Invalid handle
   assert.deepEqual([result.pages[0].name, result.pages[0].number], ['1층 평면도', 'A-101']);
   assert.match(result.warnings[0], /읽을 수 없는 부분 1곳을 복구/);
 });
+
+for (const [kind, nth] of [['LAYER', 0], ['LTYPE', 0], ['BLOCK_RECORD', 0]]) {
+  test(`이름 없는 ${kind} 테이블 항목을 복구해 읽는다 (name has to be a string)`, async () => {
+    const result = await engine.analyze(await fixture(`noname-${kind.toLowerCase()}.dxf`), 'x.dxf', 'model');
+    assert.deepEqual(result.pages.map(p => p.name).slice(0, 3), ['1층 평면도', '정면도', '계단 상세도']);
+    assert.match(result.warnings[0], /읽을 수 없는 부분 \d+곳을 복구/);
+    assert.equal(engine.pdf(result.pages.map(p => p.id), 'A3', true).skipped, 0);
+  });
+}
