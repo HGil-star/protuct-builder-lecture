@@ -12,6 +12,7 @@ import zlib
 from typing import Iterable
 
 from ezdxf import bbox, recover
+from ezdxf.lldxf.const import DXFStructureError
 from ezdxf.addons.drawing import Frontend, RenderContext, layout, svg
 from ezdxf.addons.drawing.config import (
     BackgroundPolicy,
@@ -40,6 +41,63 @@ def setup_fonts(folder: str, fallback: str) -> None:
     fonts.font_manager.clear()
     fonts.font_manager.scan_all([folder])
     fonts.font_manager._fallback_font_name = fallback
+
+
+# --------------------------------------------------------------- DXF 읽기
+def _is_group_code(line: bytes) -> bool:
+    line = line.strip()
+    return 0 < len(line) <= 6 and line.lstrip(b"-").isdigit()
+
+
+def _repair_dxf(path: str) -> int:
+    """LibreDWG가 줄바꿈이 섞인 문자열을 그대로 써서 깨진 DXF 줄 구조를 복구합니다.
+
+    LibreDWG의 줄 끝은 항상 CRLF이므로 CRLF로만 줄을 나누고, 값 안의 단독 LF/CR은
+    공백으로 바꿉니다. 그래도 그룹 코드 자리에 값이 오면 앞 값의 이어지는 부분으로 합칩니다.
+    고친 곳의 수를 돌려줍니다.
+    """
+    with open(path, "rb") as f:
+        data = f.read()
+    lines = data.split(b"\r\n") if b"\r\n" in data[:4096] else data.splitlines()
+    out: list[bytes] = []
+    fixes = i = 0
+    n = len(lines)
+    while i < n:
+        code = lines[i]
+        if not _is_group_code(code):
+            if not code.strip() and i == n - 1:
+                break  # 파일 끝 빈 줄
+            if out:  # 앞 값에서 줄바꿈으로 떨어져 나온 부분
+                out[-1] += b" " + code.replace(b"\r", b" ").replace(b"\n", b" ").strip()
+            fixes += 1
+            i += 1
+            continue
+        value = lines[i + 1] if i + 1 < n else b""
+        if b"\n" in value or b"\r" in value:
+            value = value.replace(b"\r", b" ").replace(b"\n", b" ")
+            fixes += 1
+        out += [code.strip(), value]
+        i += 2
+    with open(path, "wb") as f:
+        f.write(b"\n".join(out) + b"\n")
+    return fixes
+
+
+def _read(path: str):
+    """DXF를 읽고 (문서, 복구한 곳 수)를 돌려줍니다."""
+    try:
+        doc, _ = recover.readfile(path)
+        return doc, 0
+    except DXFStructureError:
+        fixes = _repair_dxf(path)
+        doc, _ = recover.readfile(path)
+        return doc, fixes
+
+
+def _repair_warning(fixes: int, what: str) -> list[str]:
+    if not fixes:
+        return []
+    return [f"{what}의 DWG 변환 결과에서 깨진 문자열 {fixes}곳을 복구했습니다. 줄바꿈이 포함된 글자는 한 줄로 표시될 수 있습니다."]
 
 
 # --------------------------------------------------------------- 도곽 검출
@@ -233,7 +291,7 @@ def _layout_of(outer: BoundingBox2d, rects: Iterable[BoundingBox2d]) -> list[tup
 def reference(dxf_path: str) -> dict:
     """기준 도곽 파일에서 도곽의 블록 이름·가로세로 비율·내부 구획을 읽습니다."""
     global _reference
-    doc, _ = recover.readfile(dxf_path)
+    doc, fixes = _read(dxf_path)
     msp = doc.modelspace()
     ext = bbox.extents(msp)
     if not ext.has_data:
@@ -259,7 +317,8 @@ def reference(dxf_path: str) -> dict:
     outer, rects = max(candidates, key=lambda c: c[0].size.x * c[0].size.y)
     _reference = {"names": sorted(names), "ratio": outer.size.x / outer.size.y, "inner": _layout_of(outer, rects),
                   "width": outer.size.x, "height": outer.size.y}
-    return {k: v for k, v in _reference.items() if k != "inner"} | {"innerCount": len(_reference["inner"])}
+    return ({k: v for k, v in _reference.items() if k != "inner"}
+            | {"innerCount": len(_reference["inner"]), "warnings": _repair_warning(fixes, "기준 도곽 파일")})
 
 
 def _same_layout(ref_inner: list[tuple], inner: list[tuple]) -> bool:
@@ -315,9 +374,9 @@ def _contains(outer: BoundingBox2d, inner: BoundingBox2d, tol: float) -> bool:
 def analyze(dxf_path: str, mode: str = "model", use_reference: bool = False) -> dict:
     """도면을 읽고 페이지 후보 목록을 돌려줍니다."""
     global _doc, _pages, _cache
-    _doc, auditor = recover.readfile(dxf_path)
+    _doc, fixes = _read(dxf_path)
     _cache = bbox.Cache()
-    warnings: list[str] = []
+    warnings: list[str] = _repair_warning(fixes, "도면 파일")
     unsupported = {e.dxftype() for e in _doc.modelspace() if e.dxftype() in ("IMAGE", "OLE2FRAME", "3DSOLID", "REGION", "BODY")}
     if unsupported:
         warnings.append("표시하지 못하는 객체가 있습니다: " + ", ".join(sorted(unsupported)))

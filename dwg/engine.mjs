@@ -57,7 +57,10 @@ dwg_sheets.setup_fonts('/app/fonts', '${FONT}')
       }
       py.FS.writeFile('/work/in.dxf', await readDxf(bytes, name, '도면'));
       progress('도곽을 찾는 중');
-      try { return { ...toJs(sheets.analyze('/work/in.dxf', mode, Boolean(refInfo))), reference: refInfo }; }
+      try {
+        const result = toJs(sheets.analyze('/work/in.dxf', mode, Boolean(refInfo)));
+        return { ...result, warnings: [...(refInfo?.warnings || []), ...result.warnings], reference: refInfo };
+      }
       finally { py.FS.unlink('/work/in.dxf'); }
     },
     thumbnail(id, mono) { return sheets.thumbnail(id, mono); },

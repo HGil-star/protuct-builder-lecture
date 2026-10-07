@@ -48,7 +48,7 @@ test('기준 도곽과 같은 양식만 찾는다 (분해된 선 포함, 오검�
   const drawing = await fixture('drawing.dwg');
   const reference = { bytes: await fixture('reference.dwg'), name: 'reference.dwg' };
   const result = await engine.analyze(drawing, 'drawing.dwg', 'model', reference);
-  assert.deepEqual(result.reference, { names: ['SHEET_K'], ratio: 1.6, width: 800, height: 500, innerCount: 3 });
+  assert.deepEqual(result.reference, { names: ['SHEET_K'], ratio: 1.6, width: 800, height: 500, innerCount: 3, warnings: [] });
   assert.deepEqual(result.pages.map(p => [p.source, p.name, p.number, Math.round(p.width)]), [
     ['기준 블록', '배치도', 'C-001', 8000],
     ['기준 블록', '단면도', 'C-002', 8000],
@@ -66,4 +66,13 @@ test('기준 도곽 없이 같은 도면을 읽으면 자동 검출 결과를 �
 test('도곽 테두리가 없는 기준 파일은 이유를 알려준다', async () => {
   const empty = new TextEncoder().encode('0\nSECTION\n2\nENTITIES\n0\nLINE\n8\n0\n10\n0\n20\n0\n11\n10\n21\n0\n0\nENDSEC\n0\nEOF\n');
   await assert.rejects(engine.analyze(sample, 'sheets.dwg', 'model', { bytes: empty, name: 'ref.dxf' }), /도곽 테두리/);
+});
+
+test('줄바꿈이 섞인 문자열로 깨진 DXF를 복구해 읽는다 (Invalid group code "굴림")', async () => {
+  // LibreDWG가 값 안의 LF·CR·CRLF를 그대로 써서 그룹 코드 자리에 "굴림"이 오는 실제 사례 재현
+  const broken = await fixture('broken-strings.dxf');
+  const result = await engine.analyze(broken, 'broken-strings.dxf', 'model');
+  assert.equal(result.pages.length, 4);
+  assert.deepEqual(result.pages.slice(0, 2).map(p => [p.name, p.number]), [['1층 평면도', 'A-101 굴림'], ['정면도', 'A-201']]);
+  assert.match(result.warnings[0], /깨진 문자열 3곳을 복구/);
 });
