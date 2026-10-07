@@ -1,121 +1,47 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>로또 번호 뽑기</title>
-
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css">
-    <link rel="stylesheet" href="ui.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="no-referrer">
+  <title>DWG → PDF 변환</title>
+  <link rel="stylesheet" href="dwg-pdf.css">
+  <script src="dwg-pdf-config.js" defer></script>
+  <script src="dwg-pdf.js" defer></script>
 </head>
-
 <body>
-
-    <!-- 상단 바: 테마 / 화면 모드 선택 -->
-    <header class="site-header">
-        <div class="header-inner">
-            <a class="brand" href="index.html">로또 번호 뽑기</a>
-            <div class="settings">
-            <div class="setting">
-                <span class="setting-label">테마</span>
-                <div class="segmented" id="themeSelect">
-                    <button type="button" data-value="auto">자동</button>
-                    <button type="button" data-value="light">☀️ 라이트</button>
-                    <button type="button" data-value="dark">🌙 다크</button>
-                </div>
-            </div>
-            <div class="setting">
-                <span class="setting-label">화면</span>
-                <div class="segmented" id="layoutSelect">
-                    <button type="button" data-value="auto">자동</button>
-                    <button type="button" data-value="pc">🖥️ PC</button>
-                    <button type="button" data-value="mobile">📱 모바일</button>
-                </div>
-            </div>
-        </div>
-        </div>
-    </header>
-    <div class="navigation-bar">
-        <nav class="nav" aria-label="도구 선택">
-            <a href="index.html" class="current">로또</a>
-            <a href="receipt.html">영수증 스캐너</a>
-            <a href="cutout.html">✂누끼 메이커</a>
-        </nav>
-    </div>
-
-    <main class="app">
-
-        <!-- 뽑기 -->
-        <section class="panel draw-panel">
-            <header>
-                <h1>로또 번호 뽑기</h1>
-                <p class="subtitle">1 ~ 45 중 겹치지 않는 번호 6개와 보너스 번호 1개를 뽑아요.</p>
-            </header>
-
-            <div class="games">
-                <span class="games-label">게임 수</span>
-                <div class="segmented" id="gameSelect">
-                    <button type="button" data-value="1" class="active">1</button>
-                    <button type="button" data-value="2">2</button>
-                    <button type="button" data-value="3">3</button>
-                    <button type="button" data-value="4">4</button>
-                    <button type="button" data-value="5">5</button>
-                </div>
-            </div>
-
-            <div id="results" class="results" aria-live="polite">
-                <div class="placeholder">버튼을 눌러 행운의 번호를 뽑아보세요!</div>
-            </div>
-
-            <div class="actions">
-                <button id="drawButton" class="primary">번호 뽑기</button>
-                <button id="copyButton" class="ghost" disabled>복사</button>
-            </div>
-
-            <!-- A 게임 분석 -->
-            <dl class="stats" id="stats">
-                <div><dt>번호 합계</dt><dd id="statSum">-</dd></div>
-                <div><dt>홀 : 짝</dt><dd id="statOddEven">-</dd></div>
-                <div><dt>저 : 고</dt><dd id="statLowHigh">-</dd></div>
-            </dl>
-
-            <p class="hint">스페이스바로도 뽑을 수 있어요</p>
-        </section>
-
-        <!-- 번호 고정 / 제외 -->
-        <section class="panel picker-panel">
-            <div class="panel-head">
-                <h2>번호 고정 · 제외</h2>
-                <button id="clearPickButton" class="link">선택 해제</button>
-            </div>
-            <p class="panel-desc">
-                번호를 누를 때마다 <span class="tag fixed">고정</span> →
-                <span class="tag excluded">제외</span> → 선택 안 함 순서로 바뀌어요.
-                고정은 최대 5개까지 가능해요.
-            </p>
-            <div id="numberGrid" class="number-grid"></div>
-            <p class="panel-foot">작은 숫자는 지금까지 뽑힌 횟수예요.</p>
-        </section>
-
-        <!-- 기록 -->
-        <section class="panel history-panel">
-            <div class="panel-head">
-                <h2 id="count">뽑은 기록 · 0회</h2>
-                <button id="resetButton" class="link">기록 지우기</button>
-            </div>
-            <ol id="historyList" class="history-list">
-                <li class="empty">아직 뽑은 번호가 없어요</li>
-            </ol>
-        </section>
-
-    </main>
-
-    <div id="toast" class="toast" hidden></div>
-
-    <script src="script.js"></script>
-
+  <header class="site-header"><a class="brand" href="index.html">CAD 변환</a><nav aria-label="도구 선택"><a href="index.html" aria-current="page">DWG → PDF</a><a href="receipt.html">영수증 스캐너</a><a href="cutout.html">누끼 메이커</a></nav></header>
+  <main>
+    <div class="intro"><span class="eyebrow">CAD 도면 도구</span><h1>DWG → PDF 변환</h1><p>반복 배치된 도곽을 찾아, 한 도곽을 한 페이지로 출력하세요.</p></div>
+    <ol class="steps" aria-label="변환 단계"><li id="step-upload" aria-current="step"><span>1</span>파일 선택</li><li id="step-review"><span>2</span>페이지 확인</li><li id="step-download"><span>3</span>PDF 다운로드</li></ol>
+    <p id="server-status" class="notice" role="status">변환 서버 연결을 확인하고 있습니다.</p>
+    <section class="panel" aria-labelledby="upload-title">
+      <div class="panel-heading"><h2 id="upload-title">도면 파일</h2><span class="badge">DWG</span></div>
+      <form id="upload-form">
+        <fieldset id="upload-fields">
+          <div class="file-grid">
+            <label class="file-card" for="reference"><span class="file-icon" aria-hidden="true">▧</span><strong>기준 도곽 파일</strong><span>페이지 경계를 찾는 기준 DWG</span><input id="reference" name="reference" type="file" accept=".dwg" required><small id="reference-name">선택한 파일 없음</small></label>
+            <label class="file-card" for="drawing"><span class="file-icon" aria-hidden="true">▤</span><strong>실제 도면 파일</strong><span>여러 도곽이 배치된 DWG</span><input id="drawing" name="drawing" type="file" accept=".dwg" required><small id="drawing-name">선택한 파일 없음</small></label>
+          </div>
+          <details class="additional"><summary>외부참조·폰트·출력 스타일 파일 추가</summary><p>XREF, 이미지, SHX/TTF, CTB/STB 등이 필요한 도면은 관련 파일 ZIP을 함께 선택하세요. 사용할 권한이 있는 파일만 포함하세요.</p><label for="dependencies">관련 파일 ZIP (선택)</label><input id="dependencies" name="dependencies" type="file" accept=".zip"><label for="plot-style">출력 스타일 파일명 (선택)</label><input id="plot-style" name="plotStyle" type="text" maxlength="120" placeholder="예: monochrome.ctb"><small>ZIP에 포함한 CTB/STB 파일명. 비워 두면 기존 Layout 설정을 우선 사용합니다.</small></details>
+          <div class="settings-grid"><label for="space">페이지 찾기<select id="space" name="space"><option value="model">Model Space 도곽 자동 검출</option><option value="layouts">기존 Layout별 출력</option></select></label><label for="paper">출력 용지<select id="paper" name="paper"><option value="A4">A4 · 210 × 297 mm</option><option value="A3" selected>A3 · 297 × 420 mm</option><option value="A2">A2 · 420 × 594 mm</option><option value="A1">A1 · 594 × 841 mm</option><option value="layout">기존 Layout 용지</option></select></label></div>
+          <p class="hint">도곽 종횡비를 유지해 용지에 맞춥니다. 자동 검출은 평면 2D 도면을 대상으로 합니다.</p>
+        </fieldset>
+        <div class="actions"><button id="analyze" class="primary" type="submit" disabled>도면 분석</button><button id="cancel" type="button" hidden>작업 취소 · 파일 삭제</button></div>
+      </form>
+    </section>
+    <p id="message" class="message" role="status" aria-live="polite"></p>
+    <section id="review" class="panel" aria-labelledby="review-title" hidden>
+      <div class="panel-heading"><div><h2 id="review-title">검출된 페이지</h2><p id="count"></p></div><button id="reset-order" type="button">기본 순서로</button></div>
+      <p class="hint">윗줄의 왼쪽 → 오른쪽, 다음 줄 순서입니다. 이동 버튼으로 순서를 바꾸고 출력할 페이지를 선택하세요.</p>
+      <ul id="warnings" class="warnings" hidden></ul>
+      <ol id="pages" class="pages"></ol>
+      <div class="output-settings"><label for="output-paper">최종 출력 용지<select id="output-paper"><option value="A4">A4</option><option value="A3" selected>A3</option><option value="A2">A2</option><option value="A1">A1</option><option value="layout">기존 Layout 용지</option></select></label><small>분석 때와 다른 용지를 선택하면 최종 PDF를 새 설정으로 출력합니다.</small></div>
+      <div class="actions"><button id="generate" type="button" class="primary">PDF 생성</button></div>
+    </section>
+    <section id="download-panel" class="panel success-panel" hidden><span class="success-icon" aria-hidden="true">✓</span><h2>PDF가 준비되었습니다</h2><p id="download-info"></p><button id="download" type="button" class="primary">PDF 다운로드</button><button id="delete" type="button">결과 삭제</button></section>
+    <p id="retention" class="privacy">업로드 파일은 임시 보관하며, 최종 변환 완료 후 삭제합니다. 분석 대기 중인 파일과 PDF도 작업 만료 시 삭제됩니다.</p>
+  </main>
+  <dialog id="preview-dialog"><div class="dialog-heading"><h2 id="preview-title">페이지 미리보기</h2><button id="close-preview" type="button">닫기</button></div><p id="preview-status" role="status"></p><iframe id="preview-frame" title="도곽 PDF 미리보기"></iframe><a id="preview-link" target="_blank" rel="noopener">새 창에서 PDF 열기</a></dialog>
 </body>
 </html>
