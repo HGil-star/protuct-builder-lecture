@@ -1,0 +1,8 @@
+/dwg/*.mjs
+  Content-Type: text/javascript; charset=utf-8
+
+/dwg/vendor/libredwg/*.wasm
+  Content-Type: application/wasm
+
+/dwg/vendor/*
+  Cache-Control: public, max-age=86400
