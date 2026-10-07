@@ -1,66 +1,58 @@
 (() => {
   'use strict';
   const $ = id => document.getElementById(id);
-  const base = (window.DWG_PDF_CONFIG?.apiBase || '').replace(/\/$/, '');
-  let ready = false, job = null, frames = [], initialOrder = [], selected = new Set(), polling = false, busy = false, previewUrl = null, previewRequest = 0;
-  const blobs = new Map();
+  const worker = new Worker('dwg/worker.mjs', { type: 'module' });
+  const calls = new Map();
+  let callId = 0, ready = false, busy = false, frames = [], initialOrder = [], selected = new Set(), mode = 'model', fileName = 'drawing';
+  let pdfUrl = null, previewUrl = null, thumbRun = 0;
+  const thumbUrls = new Map();
+
+  worker.onmessage = ({ data }) => {
+    if (data.type === 'progress') { if (!ready) $('engine-status').textContent = `${data.text}…`; else if (busy) message(`${data.text}…`); return; }
+    const call = calls.get(data.id); if (!call) return; calls.delete(data.id);
+    data.ok ? call.resolve(data.result) : call.reject(new Error(data.error));
+  };
+  worker.onerror = () => { $('engine-status').textContent = '변환 도구를 불러오지 못했습니다. 최신 Chrome·Edge·Safari·Firefox에서 페이지를 새로고침하세요.'; };
+  const run = (type, payload = {}, transfer = []) => new Promise((resolve, reject) => { const id = ++callId; calls.set(id, { resolve, reject }); worker.postMessage({ id, type, ...payload }, transfer); });
+
   const message = (text, isError = false) => { $('message').textContent = text; $('message').classList.toggle('error', isError); };
-  const endpoint = suffix => `${base}/api/dwg${suffix}`;
-  async function readJson(response) {
-    const contentType = response.headers.get('content-type') || '';
-    if (!/^application\/(?:json|[a-z0-9.+-]+\+json)(?:\s*;|$)/i.test(contentType))
-      throw new Error('변환 서비스의 응답을 확인할 수 없습니다. 잠시 후 다시 시도하세요.');
-    try { return await response.json(); }
-    catch { throw new Error('변환 서비스의 응답을 확인할 수 없습니다. 잠시 후 다시 시도하세요.'); }
-  }
   function setStep(step) { for (const name of ['upload', 'review', 'download']) { if (name === step) $(`step-${name}`).setAttribute('aria-current', 'step'); else $(`step-${name}`).removeAttribute('aria-current'); } }
-  async function request(suffix, options = {}) {
-    const response = await fetch(endpoint(suffix), { ...options, headers: { ...(job ? { 'X-Job-Token': job.token } : {}), ...options.headers } });
-    if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.error || `요청 실패 (${response.status})`); }
-    return response;
-  }
   function toggleBusy(value) {
-    busy = value; $('upload-fields').disabled = value || Boolean(job); $('analyze').disabled = value || !ready || Boolean(job);
-    $('generate').disabled = value || !selected.size; $('reset-order').disabled = value;
-    $('output-paper').disabled = value; $('cancel').hidden = !job; $('cancel').disabled = false;
-    for (const input of $('pages').querySelectorAll('button,input')) input.disabled = value;
+    busy = value; const analysed = frames.length > 0 || !$('review').hidden;
+    $('upload-fields').disabled = value || analysed; $('analyze').disabled = value || !ready || analysed;
+    $('generate').disabled = value || !selected.size; $('reset-order').disabled = value; $('output-paper').disabled = value;
+    $('cancel').hidden = !analysed; $('cancel').disabled = value;
+    for (const input of $('pages').querySelectorAll('button,input')) input.disabled = value || input.dataset.disabled === 'true';
   }
-  function disposePreview() { previewRequest++; $('preview-frame').src = 'about:blank'; if (previewUrl) URL.revokeObjectURL(previewUrl); previewUrl = null; $('preview-link').removeAttribute('href'); }
+  const revoke = url => { if (url) URL.revokeObjectURL(url); };
   function reset() {
-    polling = false; disposePreview(); if ($('preview-dialog').open) $('preview-dialog').close();
-    job = null; frames = []; initialOrder = []; selected.clear(); blobs.clear();
-    $('review').hidden = true; $('download-panel').hidden = true; $('pages').replaceChildren();
-    $('retry-status').hidden = true;
+    thumbRun++; frames = []; initialOrder = []; selected.clear();
+    for (const url of thumbUrls.values()) revoke(url); thumbUrls.clear();
+    revoke(pdfUrl); pdfUrl = null;
+    $('review').hidden = true; $('download-panel').hidden = true; $('pages').replaceChildren(); message('');
     toggleBusy(false); setStep('upload');
-  }
-  async function removeJob() {
-    if (!job) return;
-    $('cancel').disabled = true; $('delete').disabled = true;
-    try { await request(`/jobs/${job.id}`, { method: 'DELETE' }); reset(); message('작업과 서버 파일을 삭제했습니다.'); }
-    catch (err) { message(`${err.message}\n연결이 복구되면 다시 삭제할 수 있습니다. 파일은 작업 만료 시 자동 삭제됩니다.`, true); }
-    finally { $('cancel').disabled = false; $('delete').disabled = false; }
   }
   function warnings(list) {
     $('warnings').replaceChildren(); $('warnings').hidden = !list?.length;
     for (const text of list || []) { const li = document.createElement('li'); li.textContent = String(text); $('warnings').append(li); }
   }
+  const countText = () => `감지된 페이지: ${frames.length}개 · 출력 선택: ${selected.size}개`;
   function render() {
-    $('pages').replaceChildren();
-    $('count').textContent = `감지된 페이지: ${frames.length}개 · 출력 선택: ${selected.size}개`;
+    $('pages').replaceChildren(); $('count').textContent = countText();
     frames.forEach((frame, index) => {
       const card = document.createElement('li'); card.className = 'page-card';
       const heading = document.createElement('div'); heading.className = 'page-heading';
-      const label = document.createElement('label'), check = document.createElement('input'); check.type = 'checkbox'; check.checked = selected.has(frame.id); check.disabled = busy;
-      check.addEventListener('change', () => { check.checked ? selected.add(frame.id) : selected.delete(frame.id); $('count').textContent = `감지된 페이지: ${frames.length}개 · 출력 선택: ${selected.size}개`; $('generate').disabled = busy || !selected.size; });
+      const label = document.createElement('label'), check = document.createElement('input'); check.type = 'checkbox'; check.checked = selected.has(frame.id);
+      check.addEventListener('change', () => { check.checked ? selected.add(frame.id) : selected.delete(frame.id); $('count').textContent = countText(); $('generate').disabled = busy || !selected.size; });
       label.append(check, document.createTextNode(`${index + 1}페이지`)); heading.append(label); card.append(heading);
-      const ns = 'http://www.w3.org/2000/svg', svg = document.createElementNS(ns, 'svg'); svg.setAttribute('viewBox', '0 0 260 130'); svg.classList.add('frame-map'); svg.setAttribute('role', 'img'); svg.setAttribute('aria-label', '도곽 종횡비 표시. 실제 도면은 PDF 미리보기로 확인하세요.');
-      const ratio = frame.width / frame.height, w = Math.min(220, 96 * ratio), h = w / ratio;
-      for (const inset of [0, 5]) { const rect = document.createElementNS(ns, 'rect'); rect.setAttribute('x', String((260 - w) / 2 + inset)); rect.setAttribute('y', String((130 - h) / 2 + inset)); rect.setAttribute('width', String(Math.max(w - inset * 2, 1))); rect.setAttribute('height', String(Math.max(h - inset * 2, 1))); if (inset) rect.classList.add('frame-inner'); svg.append(rect); }
-      card.append(svg);
-      const name = document.createElement('p'); name.className = 'page-name'; name.textContent = frame.name || frame.id; card.append(name);
-      const meta = document.createElement('p'); meta.className = 'page-meta'; meta.textContent = `${frame.source || '도곽'} · ${frame.width.toFixed(1)} × ${frame.height.toFixed(1)}${frame.source === 'Layout' ? ' mm' : ' 도면 단위'}${frame.confidence ? ` · ${frame.confidence}` : ''}`; card.append(meta);
+      const thumb = document.createElement('div'); thumb.className = 'thumb'; thumb.dataset.id = frame.id;
+      if (thumbUrls.has(frame.id)) { const img = document.createElement('img'); img.src = thumbUrls.get(frame.id); img.alt = `${index + 1}페이지 축소 미리보기`; thumb.append(img); }
+      else thumb.textContent = '미리보기 그리는 중…';
+      card.append(thumb);
+      const name = document.createElement('p'); name.className = 'page-name'; name.textContent = [frame.number, frame.name].filter(Boolean).join(' · ') || (frame.source === 'Layout' ? frame.id : '이름 없는 도곽'); card.append(name);
+      const meta = document.createElement('p'); meta.className = 'page-meta'; meta.textContent = `${frame.source} · ${frame.width.toFixed(1)} × ${frame.height.toFixed(1)}${frame.source === 'Layout' ? ' mm' : ' 도면 단위'}`; card.append(meta);
       const actions = document.createElement('div'); actions.className = 'page-actions';
-      const button = (text, callback, disabled = false) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = text; b.disabled = busy || disabled; b.addEventListener('click', callback); actions.append(b); };
+      const button = (text, callback, disabled = false) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = text; b.dataset.disabled = String(disabled); b.disabled = busy || disabled; b.addEventListener('click', callback); actions.append(b); };
       button('PDF 미리보기', () => preview(frame, index));
       button('↑ 앞으로', () => { [frames[index - 1], frames[index]] = [frames[index], frames[index - 1]]; render(); }, index === 0);
       button('↓ 뒤로', () => { [frames[index + 1], frames[index]] = [frames[index], frames[index + 1]]; render(); }, index === frames.length - 1);
@@ -68,90 +60,74 @@
     });
     $('generate').disabled = busy || !selected.size;
   }
+  async function drawThumbnails() {
+    const runId = ++thumbRun, mono = $('mono').checked;
+    for (const frame of [...frames]) {
+      if (runId !== thumbRun) return;
+      try {
+        const svg = await run('thumbnail', { page: frame.id, mono });
+        if (runId !== thumbRun) return;
+        const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' })); thumbUrls.set(frame.id, url);
+        const box = $('pages').querySelector(`.thumb[data-id="${frame.id}"]`);
+        if (box) { const img = document.createElement('img'); img.src = url; img.alt = '축소 미리보기'; box.replaceChildren(img); }
+      } catch { const box = $('pages').querySelector(`.thumb[data-id="${frame.id}"]`); if (box) box.textContent = '미리보기를 그리지 못했습니다.'; }
+    }
+  }
+  async function makePdf(ids, paper) {
+    const bytes = await run('pdf', { pages: ids, paper, mono: $('mono').checked });
+    return new Blob([bytes], { type: 'application/pdf' });
+  }
+  function disposePreview() { $('preview-frame').src = 'about:blank'; revoke(previewUrl); previewUrl = null; $('preview-link').removeAttribute('href'); }
   async function preview(frame, index) {
-    disposePreview(); const requestId = previewRequest; const activeJob = job;
-    $('preview-title').textContent = `${index + 1}페이지 미리보기`; $('preview-status').textContent = 'PDF를 불러오고 있습니다.';
+    disposePreview();
+    $('preview-title').textContent = `${index + 1}페이지 미리보기`; $('preview-status').textContent = 'PDF를 만들고 있습니다.';
     $('preview-frame').hidden = true; $('preview-link').hidden = true; $('preview-dialog').showModal();
     try {
-      let blob = blobs.get(frame.id);
-      if (!blob) { blob = await (await request(`/jobs/${job.id}/pages/${frame.id}`)).blob(); if (requestId !== previewRequest || job !== activeJob) return; blobs.set(frame.id, blob); }
-      if (requestId !== previewRequest || job !== activeJob) return;
+      const blob = await makePdf([frame.id], $('output-paper').value);
+      if (!$('preview-dialog').open) return;
       previewUrl = URL.createObjectURL(blob); $('preview-frame').src = previewUrl; $('preview-link').href = previewUrl;
-      $('preview-frame').hidden = false; $('preview-link').hidden = false; $('preview-status').textContent = '분석 시 설정한 용지의 미리보기입니다. PDF가 표시되지 않으면 새 창에서 열어주세요.';
-    } catch (err) { if (requestId === previewRequest) $('preview-status').textContent = err.message; }
+      $('preview-frame').hidden = false; $('preview-link').hidden = false; $('preview-status').textContent = 'PDF가 표시되지 않으면 새 창에서 열어주세요.';
+    } catch (err) { $('preview-status').textContent = err.message; }
   }
-  async function poll() {
-    if (polling) return; polling = true; const activeJob = job;
-    try {
-      while (job === activeJob && job) {
-        const data = await readJson(await request(`/jobs/${job.id}`)); if (job !== activeJob) break;
-        message(data.message, ['failed', 'empty'].includes(data.state));
-        if (data.state === 'review') {
-          frames = data.frames; initialOrder = frames.map(f => f.id); selected = new Set(initialOrder);
-          warnings(data.warnings); $('review').hidden = false; toggleBusy(false); render(); setStep('review'); break;
-        }
-        if (data.state === 'done') {
-          warnings(data.warnings); $('review').hidden = false; $('download-panel').hidden = false;
-          $('download-info').textContent = `${data.pageCount}페이지 · ${new Date(data.expires).toLocaleTimeString('ko-KR')}까지 다운로드 가능`;
-          toggleBusy(true); $('download').disabled = false; setStep('download'); break;
-        }
-        if (['failed', 'empty'].includes(data.state)) { toggleBusy(true); break; }
-        await new Promise(resolve => setTimeout(resolve, 2500));
-      }
-    } catch (err) { if (job === activeJob) { message(`${err.message}\n페이지를 닫기 전 작업을 삭제하거나, 아래 버튼으로 상태를 다시 확인하세요.`, true); $('retry-status').hidden = false; } }
-    finally { polling = false; }
-  }
-  const retry = document.createElement('button'); retry.id = 'retry-status'; retry.type = 'button'; retry.hidden = true; retry.textContent = '작업 상태 다시 확인'; $('message').after(retry);
-  retry.addEventListener('click', () => { retry.hidden = true; void poll(); });
-  for (const name of ['reference', 'drawing']) $(name).addEventListener('change', () => { $(`${name}-name`).textContent = $(name).files[0]?.name || '선택한 파일 없음'; });
+
+  $('drawing').addEventListener('change', () => { $('drawing-name').textContent = $('drawing').files[0]?.name || '선택한 파일 없음'; });
   $('space').addEventListener('change', () => { const layoutOption = $('paper').querySelector('[value="layout"]'); layoutOption.disabled = $('space').value !== 'layouts'; if (layoutOption.disabled && $('paper').value === 'layout') $('paper').value = 'A3'; });
   $('space').dispatchEvent(new Event('change'));
   $('upload-form').addEventListener('submit', async event => {
-    event.preventDefault(); if (!ready || busy || job) return;
-    const formData = new FormData($('upload-form'));
-    for (const name of ['reference', 'drawing']) if (!$(name).files[0] || !/\.dwg$/i.test($(name).files[0].name)) return message('기준 도곽과 실제 도면 DWG를 선택하세요.', true);
-    if (!$('dependencies').files.length) formData.delete('dependencies');
-    const paper = $('paper').value; const space = $('space').value;
-    toggleBusy(true); message('파일을 업로드하고 있습니다.');
+    event.preventDefault(); if (!ready || busy) return;
+    const file = $('drawing').files[0];
+    if (!file || !/\.(dwg|dxf)$/i.test(file.name)) return message('DWG 또는 DXF 파일을 선택하세요.', true);
+    mode = $('space').value; fileName = file.name.replace(/\.(dwg|dxf)$/i, '') || 'drawing';
+    const paper = $('paper').value;
+    toggleBusy(true); message('도면을 읽고 있습니다…');
     try {
-      job = await readJson(await request('/jobs', { method: 'POST', body: formData }));
-      $('output-paper').value = paper; $('output-paper').querySelector('[value="layout"]').disabled = space !== 'layouts';
-      toggleBusy(true); void poll();
-    } catch (err) { toggleBusy(false); message(err.message, true); }
+      const buffer = await file.arrayBuffer();
+      const result = await run('analyze', { file: buffer, name: file.name, mode }, [buffer]);
+      frames = result.pages; initialOrder = frames.map(f => f.id); selected = new Set(initialOrder);
+      $('output-paper').value = paper; $('output-paper').querySelector('[value="layout"]').disabled = mode !== 'layouts';
+      warnings(result.warnings); $('review').hidden = false;
+      message(frames.length ? `${frames.length}개 페이지를 찾았습니다. 미리보기를 확인하세요.` : '출력할 페이지를 찾지 못했습니다.', !frames.length);
+      toggleBusy(false); render(); setStep('review'); void drawThumbnails();
+    } catch (err) { frames = []; $('review').hidden = true; toggleBusy(false); message(err.message, true); }
   });
   $('generate').addEventListener('click', async () => {
-    if (busy || !job || !selected.size) return;
-    toggleBusy(true); message('PDF 생성을 요청하고 있습니다.');
-    try { await request(`/jobs/${job.id}/generate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: frames.filter(f => selected.has(f.id)).map(f => f.id), paper: $('output-paper').value }) }); void poll(); }
-    catch (err) { toggleBusy(false); render(); message(err.message, true); }
-  });
-  $('reset-order').addEventListener('click', () => { frames.sort((a, b) => initialOrder.indexOf(a.id) - initialOrder.indexOf(b.id)); render(); });
-  $('cancel').addEventListener('click', removeJob); $('delete').addEventListener('click', removeJob);
-  $('close-preview').addEventListener('click', () => $('preview-dialog').close()); $('preview-dialog').addEventListener('close', disposePreview);
-  $('download').addEventListener('click', async () => {
-    $('download').disabled = true;
-    try { const blob = await (await request(`/jobs/${job.id}/download`)).blob(); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'drawing.pdf'; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 60000); }
-    catch (err) { message(err.message, true); } finally { $('download').disabled = false; }
-  });
-  async function connect() {
+    if (busy || !selected.size) return;
+    toggleBusy(true); message('PDF를 만들고 있습니다…');
     try {
-      if (base && !/^https:\/\//.test(base) && !/^http:\/\/localhost(?::\d+)?$/.test(base)) throw new Error('API 주소 설정을 확인하세요.');
-      const response = await fetch(endpoint('/health'), { signal: AbortSignal.timeout(10000) });
-      if (!response.ok) throw new Error('변환 서버에 연결할 수 없습니다.');
-      const health = await readJson(response);
-      if (!health || typeof health.ready !== 'boolean' || !Number.isFinite(health.maxUploadMB) || health.maxUploadMB <= 0 || !Number.isFinite(health.retentionMinutes) || health.retentionMinutes <= 0)
-        throw new Error('변환 서비스 상태를 확인할 수 없습니다.');
-      ready = health.ready;
-      $('server-status').textContent = ready ? `변환 서버 연결됨 · 파일당 최대 ${health.maxUploadMB} MB` : '변환 서버 준비 중입니다. 연결이 완료되면 도면 분석과 PDF 생성을 사용할 수 있습니다.';
-      $('retention').textContent = `업로드 파일은 최종 변환 완료 후 삭제합니다. 분석 대기 파일과 PDF도 작업 시작 후 최대 ${health.retentionMinutes}분 내 만료되며, 만료 후 정리됩니다.`;
-      toggleBusy(false);
-    } catch {
-      ready = false;
-      $('server-status').textContent = base
-        ? '변환 서비스에 연결하지 못했습니다. 잠시 후 페이지를 새로고침해 주세요. 현재는 파일 선택만 가능하며, 도면 분석과 PDF 생성은 사용할 수 없습니다.'
-        : '아직 변환 서비스가 연결되지 않았습니다. 현재는 화면과 파일 선택만 확인할 수 있습니다. 서비스 연결 후 도면 분석과 PDF 생성을 사용할 수 있습니다.';
-      toggleBusy(false);
-    }
-  }
-  void connect();
+      const ids = frames.filter(f => selected.has(f.id)).map(f => f.id);
+      const blob = await makePdf(ids, $('output-paper').value);
+      revoke(pdfUrl); pdfUrl = URL.createObjectURL(blob);
+      $('download-info').textContent = `${ids.length}페이지 · ${blob.size < 1048576 ? `${Math.ceil(blob.size / 1024)} KB` : `${(blob.size / 1048576).toFixed(1)} MB`}`;
+      $('download-panel').hidden = false; message(''); setStep('download');
+    } catch (err) { message(err.message, true); }
+    finally { toggleBusy(false); }
+  });
+  $('download').addEventListener('click', () => { if (!pdfUrl) return; const a = document.createElement('a'); a.href = pdfUrl; a.download = `${fileName}.pdf`; document.body.append(a); a.click(); a.remove(); });
+  $('reset-order').addEventListener('click', () => { frames.sort((a, b) => initialOrder.indexOf(a.id) - initialOrder.indexOf(b.id)); render(); });
+  $('cancel').addEventListener('click', reset);
+  $('close-preview').addEventListener('click', () => $('preview-dialog').close()); $('preview-dialog').addEventListener('close', disposePreview);
+
+  run('init').then(() => {
+    ready = true; $('engine-status').textContent = '변환 도구 준비 완료 · 도면은 이 브라우저 안에서만 처리됩니다.'; toggleBusy(false);
+  }, err => { $('engine-status').textContent = `변환 도구를 불러오지 못했습니다: ${err.message}`; });
 })();

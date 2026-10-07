@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<ApplicationPackage SchemaVersion="1.0" AppVersion="1.0.0" Name="DwgPdf">
-  <Components>
-    <RuntimeRequirements OS="Win64" Platform="AutoCAD" SeriesMin="R25.1" SeriesMax="R25.1" SupportPath="./Contents" />
-    <ComponentEntry AppName="DwgPdf" ModuleName="./Contents/DwgPdf.dll" AppDescription="Frame detection and PDF plotting" LoadOnAutoCADStartup="True">
-      <Commands GroupName="DwgPdf"><Command Global="DWGPDF" Local="DWGPDF" /></Commands>
-    </ComponentEntry>
-  </Components>
-</ApplicationPackage>

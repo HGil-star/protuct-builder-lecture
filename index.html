@@ -6,28 +6,24 @@
   <meta name="referrer" content="no-referrer">
   <title>DWG → PDF 변환</title>
   <link rel="stylesheet" href="dwg-pdf.css">
-  <script src="dwg-pdf-config.js" defer></script>
   <script src="dwg-pdf.js" defer></script>
 </head>
 <body>
   <header class="site-header"><a class="brand" href="index.html">CAD 변환</a><nav aria-label="도구 선택"><a href="index.html" aria-current="page">DWG → PDF</a><a href="receipt.html">영수증 스캐너</a><a href="cutout.html">누끼 메이커</a></nav></header>
   <main>
-    <div class="intro"><span class="eyebrow">CAD 도면 도구</span><h1>DWG → PDF 변환</h1><p>반복 배치된 도곽을 찾아, 한 도곽을 한 페이지로 출력하세요.</p></div>
+    <div class="intro"><span class="eyebrow">CAD 도면 도구</span><h1>DWG → PDF 변환</h1><p>반복 배치된 도곽을 찾아, 한 도곽을 한 페이지로 출력하세요. 설치나 가입 없이 무료로 사용할 수 있습니다.</p></div>
     <ol class="steps" aria-label="변환 단계"><li id="step-upload" aria-current="step"><span>1</span>파일 선택</li><li id="step-review"><span>2</span>페이지 확인</li><li id="step-download"><span>3</span>PDF 다운로드</li></ol>
-    <p id="server-status" class="notice" role="status">변환 서버 연결을 확인하고 있습니다.</p>
+    <p id="engine-status" class="notice" role="status">변환 도구를 준비하고 있습니다. 처음 한 번은 약 30 MB를 내려받습니다.</p>
     <section class="panel" aria-labelledby="upload-title">
-      <div class="panel-heading"><h2 id="upload-title">도면 파일</h2><span class="badge">DWG</span></div>
+      <div class="panel-heading"><h2 id="upload-title">도면 파일</h2><span class="badge">DWG · DXF</span></div>
       <form id="upload-form">
         <fieldset id="upload-fields">
-          <div class="file-grid">
-            <label class="file-card" for="reference"><span class="file-icon" aria-hidden="true">▧</span><strong>기준 도곽 파일</strong><span>페이지 경계를 찾는 기준 DWG</span><input id="reference" name="reference" type="file" accept=".dwg" required><small id="reference-name">선택한 파일 없음</small></label>
-            <label class="file-card" for="drawing"><span class="file-icon" aria-hidden="true">▤</span><strong>실제 도면 파일</strong><span>여러 도곽이 배치된 DWG</span><input id="drawing" name="drawing" type="file" accept=".dwg" required><small id="drawing-name">선택한 파일 없음</small></label>
-          </div>
-          <details class="additional"><summary>외부참조·폰트·출력 스타일 파일 추가</summary><p>XREF, 이미지, SHX/TTF, CTB/STB 등이 필요한 도면은 관련 파일 ZIP을 함께 선택하세요. 사용할 권한이 있는 파일만 포함하세요.</p><label for="dependencies">관련 파일 ZIP (선택)</label><input id="dependencies" name="dependencies" type="file" accept=".zip"><label for="plot-style">출력 스타일 파일명 (선택)</label><input id="plot-style" name="plotStyle" type="text" maxlength="120" placeholder="예: monochrome.ctb"><small>ZIP에 포함한 CTB/STB 파일명. 비워 두면 기존 Layout 설정을 우선 사용합니다.</small></details>
+          <label class="file-card" for="drawing"><span class="file-icon" aria-hidden="true">▤</span><strong>도면 파일</strong><span>여러 도곽이 배치된 DWG 또는 DXF</span><input id="drawing" name="drawing" type="file" accept=".dwg,.dxf" required><small id="drawing-name">선택한 파일 없음</small></label>
           <div class="settings-grid"><label for="space">페이지 찾기<select id="space" name="space"><option value="model">Model Space 도곽 자동 검출</option><option value="layouts">기존 Layout별 출력</option></select></label><label for="paper">출력 용지<select id="paper" name="paper"><option value="A4">A4 · 210 × 297 mm</option><option value="A3" selected>A3 · 297 × 420 mm</option><option value="A2">A2 · 420 × 594 mm</option><option value="A1">A1 · 594 × 841 mm</option><option value="layout">기존 Layout 용지</option></select></label></div>
-          <p class="hint">도곽 종횡비를 유지해 용지에 맞춥니다. 자동 검출은 평면 2D 도면을 대상으로 합니다.</p>
+          <label class="check"><input id="mono" type="checkbox" checked> 흑백으로 출력</label>
+          <p class="hint">도곽 블록(이름에 도곽·TITLE·FRAME 등 포함, 또는 블록 전체를 감싸는 사각형 테두리)과 A계열 비율의 닫힌 사각형을 도곽으로 찾습니다. 도곽 비율을 유지해 용지에 맞춥니다.</p>
         </fieldset>
-        <div class="actions"><button id="analyze" class="primary" type="submit" disabled>도면 분석</button><button id="cancel" type="button" hidden>작업 취소 · 파일 삭제</button></div>
+        <div class="actions"><button id="analyze" class="primary" type="submit" disabled>도면 분석</button><button id="cancel" type="button" hidden>다른 파일 선택</button></div>
       </form>
     </section>
     <p id="message" class="message" role="status" aria-live="polite"></p>
@@ -36,11 +32,11 @@
       <p class="hint">윗줄의 왼쪽 → 오른쪽, 다음 줄 순서입니다. 이동 버튼으로 순서를 바꾸고 출력할 페이지를 선택하세요.</p>
       <ul id="warnings" class="warnings" hidden></ul>
       <ol id="pages" class="pages"></ol>
-      <div class="output-settings"><label for="output-paper">최종 출력 용지<select id="output-paper"><option value="A4">A4</option><option value="A3" selected>A3</option><option value="A2">A2</option><option value="A1">A1</option><option value="layout">기존 Layout 용지</option></select></label><small>분석 때와 다른 용지를 선택하면 최종 PDF를 새 설정으로 출력합니다.</small></div>
-      <div class="actions"><button id="generate" type="button" class="primary">PDF 생성</button></div>
+      <div class="output-settings"><label for="output-paper">최종 출력 용지<select id="output-paper"><option value="A4">A4</option><option value="A3" selected>A3</option><option value="A2">A2</option><option value="A1">A1</option><option value="layout">기존 Layout 용지</option></select></label></div>
+      <div class="actions"><button id="generate" type="button" class="primary">PDF 만들기</button></div>
     </section>
-    <section id="download-panel" class="panel success-panel" hidden><span class="success-icon" aria-hidden="true">✓</span><h2>PDF가 준비되었습니다</h2><p id="download-info"></p><button id="download" type="button" class="primary">PDF 다운로드</button><button id="delete" type="button">결과 삭제</button></section>
-    <p id="retention" class="privacy">업로드 파일은 임시 보관하며, 최종 변환 완료 후 삭제합니다. 분석 대기 중인 파일과 PDF도 작업 만료 시 삭제됩니다.</p>
+    <section id="download-panel" class="panel success-panel" hidden><span class="success-icon" aria-hidden="true">✓</span><h2>PDF가 준비되었습니다</h2><p id="download-info"></p><button id="download" type="button" class="primary">PDF 다운로드</button></section>
+    <p class="privacy">도면은 이 브라우저 안에서만 변환되며 서버로 전송되지 않습니다. 외부참조(XREF)·이미지·SHX 글꼴 모양은 포함되지 않으며, SHX 글자는 나눔고딕으로 표시합니다. <a href="dwg/NOTICE.md">오픈소스 고지</a></p>
   </main>
   <dialog id="preview-dialog"><div class="dialog-heading"><h2 id="preview-title">페이지 미리보기</h2><button id="close-preview" type="button">닫기</button></div><p id="preview-status" role="status"></p><iframe id="preview-frame" title="도곽 PDF 미리보기"></iframe><a id="preview-link" target="_blank" rel="noopener">새 창에서 PDF 열기</a></dialog>
 </body>
