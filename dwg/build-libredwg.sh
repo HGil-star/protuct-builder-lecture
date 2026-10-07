@@ -2,14 +2,14 @@
 # LibreDWG dwg2dxf를 WebAssembly로 빌드해 vendor/libredwg/에 복사합니다.
 # 필요: Emscripten(emsdk) 환경이 활성화된 셸 (source emsdk_env.sh)
 set -euo pipefail
-VERSION=0.13.3
+VERSION=0.13.4
 OUT="$(cd "$(dirname "$0")" && pwd)/vendor/libredwg"
 WORK="$(mktemp -d)"
 cd "$WORK"
 curl -fsSL "https://ftp.gnu.org/gnu/libredwg/libredwg-$VERSION.tar.xz" | tar xJ
 cd "libredwg-$VERSION"
 emconfigure ./configure --disable-bindings --disable-docs --disable-shared --enable-static --disable-write --host=wasm32 CFLAGS=-O2
-emmake make -j"$(nproc)" -C src
+emmake make -j1 -C src  # 큰 파일이 많아 메모리가 부족하면 컴파일이 중단됨
 emmake make -C programs dwg2dxf
 emcc -O2 programs/dwg2dxf.o src/.libs/libredwg.a -lm -o "$OUT/dwg2dxf.mjs" \
   -sMODULARIZE=1 -sEXPORT_ES6=1 -sENVIRONMENT=web,worker,node -sINVOKE_RUN=0 -sEXIT_RUNTIME=0 \

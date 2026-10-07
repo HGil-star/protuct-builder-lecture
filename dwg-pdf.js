@@ -26,7 +26,7 @@
   }
   const revoke = url => { if (url) URL.revokeObjectURL(url); };
   function reset() {
-    thumbRun++; frames = []; initialOrder = []; selected.clear();
+    thumbRun++; thumbQueue.clear(); observer.disconnect(); frames = []; initialOrder = []; selected.clear();
     for (const url of thumbUrls.values()) revoke(url); thumbUrls.clear();
     revoke(pdfUrl); pdfUrl = null;
     $('review').hidden = true; $('download-panel').hidden = true; $('pages').replaceChildren(); message('');
@@ -59,19 +59,41 @@
       card.append(actions); $('pages').append(card);
     });
     $('generate').disabled = busy || !selected.size;
+    drawThumbnails();
   }
-  async function drawThumbnails() {
-    const runId = ++thumbRun, mono = $('mono').checked;
-    for (const frame of [...frames]) {
-      if (runId !== thumbRun) return;
-      try {
-        const svg = await run('thumbnail', { page: frame.id, mono });
-        if (runId !== thumbRun) return;
-        const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' })); thumbUrls.set(frame.id, url);
-        const box = $('pages').querySelector(`.thumb[data-id="${frame.id}"]`);
-        if (box) { const img = document.createElement('img'); img.src = url; img.alt = '축소 미리보기'; box.replaceChildren(img); }
-      } catch { const box = $('pages').querySelector(`.thumb[data-id="${frame.id}"]`); if (box) box.textContent = '미리보기를 그리지 못했습니다.'; }
-    }
+  // 미리보기는 화면에 보이는 카드만, 한 장씩 그림. PDF를 만드는 동안은 멈춤
+  const thumbQueue = new Set();
+  let pumping = false;
+  const observer = new IntersectionObserver(entries => {
+    for (const entry of entries) if (entry.isIntersecting && !thumbUrls.has(entry.target.dataset.id)) thumbQueue.add(entry.target.dataset.id);
+    void pumpThumbnails();
+  }, { rootMargin: '600px 0px' });
+  function showThumb(id, url) {
+    const box = $('pages').querySelector(`.thumb[data-id="${id}"]`);
+    if (!box) return;
+    if (!url) { box.textContent = '미리보기를 그리지 못했습니다.'; return; }
+    const img = document.createElement('img'); img.src = url; img.alt = '축소 미리보기'; box.replaceChildren(img);
+  }
+  async function pumpThumbnails() {
+    if (pumping) return;
+    pumping = true;
+    const runId = thumbRun, mono = $('mono').checked;
+    try {
+      while (thumbQueue.size && !busy && runId === thumbRun) {
+        const id = frames.find(f => thumbQueue.has(f.id))?.id;
+        if (!id) { thumbQueue.clear(); break; }
+        thumbQueue.delete(id);
+        try {
+          const svg = await run('thumbnail', { page: id, mono });
+          if (runId !== thumbRun) break;
+          const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' })); thumbUrls.set(id, url); showThumb(id, url);
+        } catch { if (runId === thumbRun) showThumb(id, null); }
+      }
+    } finally { pumping = false; }
+  }
+  function drawThumbnails() {
+    observer.disconnect();
+    for (const box of $('pages').querySelectorAll('.thumb')) if (!thumbUrls.has(box.dataset.id)) observer.observe(box);
   }
   async function makePdf(ids, paper) {
     const { bytes, skipped } = await run('pdf', { pages: ids, paper, mono: $('mono').checked });
@@ -113,7 +135,8 @@
       warnings(result.warnings); $('review').hidden = false;
       const basis = result.reference ? `기준 도곽(${result.reference.names.join(', ') || '형상'} · ${result.reference.width.toFixed(0)} × ${result.reference.height.toFixed(0)})과 같은 ` : '';
       message(frames.length ? `${basis}${frames.length}개 페이지를 찾았습니다. 미리보기를 확인하세요.` : '출력할 페이지를 찾지 못했습니다.', !frames.length);
-      toggleBusy(false); render(); setStep('review'); void drawThumbnails();
+      toggleBusy(false); render(); setStep('review');
+      $('review').scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (err) { frames = []; $('review').hidden = true; toggleBusy(false); message(err.message, true); }
   });
   $('generate').addEventListener('click', async () => {
@@ -126,7 +149,7 @@
       $('download-info').textContent = `${ids.length}페이지 · ${blob.size < 1048576 ? `${Math.ceil(blob.size / 1024)} KB` : `${(blob.size / 1048576).toFixed(1)} MB`}${blob.skipped ? ` · 손상되어 그리지 못한 객체 ${blob.skipped}개 제외` : ''}`;
       $('download-panel').hidden = false; message(''); setStep('download');
     } catch (err) { message(err.message, true); }
-    finally { toggleBusy(false); }
+    finally { toggleBusy(false); void pumpThumbnails(); }
   });
   $('download').addEventListener('click', () => { if (!pdfUrl) return; const a = document.createElement('a'); a.href = pdfUrl; a.download = `${fileName}.pdf`; document.body.append(a); a.click(); a.remove(); });
   $('reset-order').addEventListener('click', () => { frames.sort((a, b) => initialOrder.indexOf(a.id) - initialOrder.indexOf(b.id)); render(); });

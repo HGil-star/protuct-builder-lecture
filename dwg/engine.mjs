@@ -53,7 +53,7 @@ dwg_sheets.setup_fonts('/app/fonts', '${FONT}')
       if (reference && mode === 'model') {
         py.FS.writeFile('/work/ref.dxf', await readDxf(reference.bytes, reference.name, '기준 도곽'));
         progress('기준 도곽을 읽는 중');
-        try { refInfo = toJs(sheets.reference('/work/ref.dxf')); }
+        try { refInfo = toJs(sheets.reference('/work/ref.dxf', reference.name)); }
         finally { py.FS.unlink('/work/ref.dxf'); }
       }
       py.FS.writeFile('/work/in.dxf', await readDxf(bytes, name, '도면'));
@@ -67,9 +67,10 @@ dwg_sheets.setup_fonts('/app/fonts', '${FONT}')
     thumbnail(id, mono) { return sheets.thumbnail(id, mono); },
     pdf(ids, paper, mono) {
       const list = py.toPy(ids);
+      const onPage = (done, total) => progress(`PDF를 만드는 중 ${done + 1}/${total}쪽`);
       try {
         sheets.take_skipped();
-        const proxy = sheets.render_pdf(list, paper, mono); const bytes = proxy.toJs(); proxy.destroy();
+        const proxy = sheets.render_pdf(list, paper, mono, onPage); const bytes = proxy.toJs(); proxy.destroy();
         return { bytes, skipped: sheets.take_skipped() };
       }
       finally { list.destroy(); }

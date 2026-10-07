@@ -9,11 +9,14 @@ import bisect
 import copy
 import re
 import statistics
+import unicodedata
 import zlib
 from collections import Counter
 from typing import Iterable
 
+import ezdxf
 from ezdxf import bbox, recover
+from ezdxf.addons import Importer
 from ezdxf.lldxf.const import DXFStructureError
 from ezdxf.addons.drawing import Frontend, RenderContext, layout, svg
 from ezdxf.addons.drawing.config import (
@@ -34,6 +37,8 @@ MAX_PAGES = 300
 
 _doc = None
 _reference: dict | None = None
+_ref_doc = None
+_ref_space = None
 _pages: list[dict] = []
 _cache = None
 
@@ -61,80 +66,40 @@ def _valid_handle(value: bytes) -> bool:
 
 
 TABLE_ENTRIES = {b"LAYER", b"LTYPE", b"STYLE", b"BLOCK_RECORD", b"DIMSTYLE", b"APPID", b"UCS", b"VIEW", b"VPORT"}
+NAME_REFS = {b"INSERT", b"DIMENSION", b"ARC_DIMENSION", b"LARGE_RADIAL_DIMENSION", b"ACAD_TABLE"}
+UPLUS = re.compile(rb"\\U\+([0-9A-Fa-f]{4})")
 
 
-def _name_table_entries(pairs: list[bytes]) -> tuple[list[bytes], int]:
-    """TABLES 섹션에서 이름(그룹 코드 2)이 없거나 빈 항목에 고유한 이름을 붙입니다."""
-    block_names: dict[bytes, bytes] = {}  # 블록 레코드 핸들 → BLOCK 이름
-    for k in range(0, len(pairs) - 1, 2):
-        if pairs[k] == b"0" and pairs[k + 1].strip() == b"BLOCK":
-            owner = name = None
-            j = k + 2
-            while j < len(pairs) - 1 and pairs[j] != b"0":
-                if pairs[j] == b"330" and owner is None:
-                    owner = pairs[j + 1].strip()
-                elif pairs[j] == b"2" and name is None and pairs[j + 1].strip():
-                    name = pairs[j + 1].strip()
-                j += 2
-            if owner and name:
-                block_names[owner] = name
-    out: list[bytes] = []
-    fixed = 0
-    in_tables = False
-    k = 0
-    n = len(pairs)
-    while k < n - 1:
-        code, value = pairs[k], pairs[k + 1]
-        if code == b"2" and k >= 2 and pairs[k - 2] == b"0" and pairs[k - 1].strip() == b"SECTION":
-            in_tables = value.strip() == b"TABLES"
-        if not (in_tables and code == b"0" and value.strip() in TABLE_ENTRIES):
-            out += [code, value]
-            k += 2
-            continue
-        # 항목 하나: 다음 (0, ...)까지
-        end = k + 2
-        while end < n - 1 and pairs[end] != b"0":
-            end += 2
-        entry = pairs[k:end]
-        names = [i for i in range(2, len(entry) - 1, 2) if entry[i] == b"2"]
-        if not names or not entry[names[0] + 1].strip():
-            handle = next((entry[i + 1].strip() for i in range(2, len(entry) - 1, 2) if entry[i] in (b"5", b"105")), b"%d" % k)
-            # 블록 레코드는 BLOCKS 섹션의 BLOCK(소유자=이 레코드)에 원래 이름이 있음
-            name = block_names.get(handle) if value.strip() == b"BLOCK_RECORD" else None
-            name = name or "_이름없음_".encode() + handle
-            if names:
-                entry[names[0] + 1] = name
-            else:
-                # 이름은 마지막 하위 클래스 표시(예: AcDbLinetypeTableRecord) 다음에 와야 함
-                marker = next((i for i in range(len(entry) - 2, 1, -2) if entry[i] == b"100" and entry[i + 1].strip().endswith(b"TableRecord")), None)
-                at = marker + 2 if marker is not None else len(entry)
-                entry[at:at] = [b"2", name]
-            fixed += 1
-        out += entry
-        k = end
-    out += pairs[k:]
-    return out, fixed
+def _uplus(match) -> bytes:
+    code = int(match.group(1), 16)
+    if 0xD800 <= code <= 0xDFFF:  # 짝이 없는 서로게이트는 그대로 둠
+        return match.group(0)
+    return chr(code).encode("utf-8")
 
 
-def _repair_dxf(path: str) -> int:
-    """LibreDWG 출력에서 ezdxf가 읽지 못하는 부분을 고치고, 고친 곳의 수를 돌려줍니다.
+def _to_pairs(data: bytes) -> tuple[list[bytes], int]:
+    """DXF를 [코드, 값, 코드, 값, ...]으로 나눕니다. 코드는 공백을 뗀 값입니다.
 
-    1) 줄바꿈이 섞인 문자열: LibreDWG의 줄 끝은 항상 CRLF이므로 CRLF로만 줄을 나누고,
-       값 안의 단독 LF/CR은 공백으로 바꿉니다. 그래도 그룹 코드 자리에 값이 오면 앞 값에 합칩니다.
-    2) 이름이 없는 레이어·선종류·블록 등 테이블 항목: 고유한 이름을 붙입니다.
-    3) 핸들이 0이거나 잘못된 객체: 쓰지 않는 새 핸들을 붙이고 $HANDSEED를 늘립니다.
+    LibreDWG는 줄 끝을 항상 CRLF로 쓰므로 CRLF로 나누면, 값 안에 섞인 LF/CR(문자열의 줄바꿈)이
+    줄을 쪼개지 않습니다. 구조가 정상이면 한 번에 처리하고, 아니면 한 줄씩 고칩니다.
     """
-    with open(path, "rb") as f:
-        data = f.read()
-    lines = data.split(b"\r\n") if b"\r\n" in data[:4096] else data.splitlines()
+    crlf = b"\r\n" in data[:4096]
+    lines = data.split(b"\r\n") if crlf else data.splitlines()
+    while lines and not lines[-1].strip():
+        lines.pop()
+    lone_breaks = crlf and (data.count(b"\n") != data.count(b"\r\n") or data.count(b"\r") != data.count(b"\r\n"))
+    codes = lines[0::2]
+    distinct = set(codes)
+    if len(lines) % 2 == 0 and not lone_breaks and all(_is_group_code(c) for c in distinct):
+        stripped = {c: c.strip() for c in distinct}
+        lines[0::2] = [stripped[c] for c in codes]
+        return lines, 0
     out: list[bytes] = []
     fixes = i = 0
     n = len(lines)
     while i < n:
         code = lines[i]
         if not _is_group_code(code):
-            if not code.strip() and i == n - 1:
-                break  # 파일 끝 빈 줄
             if out:  # 앞 값에서 줄바꿈으로 떨어져 나온 부분
                 out[-1] += b" " + code.replace(b"\r", b" ").replace(b"\n", b" ").strip()
             fixes += 1
@@ -146,49 +111,248 @@ def _repair_dxf(path: str) -> int:
             fixes += 1
         out += [code.strip(), value]
         i += 2
+    return out, fixes
 
-    out, named = _name_table_entries(out)
-    fixes += named
 
-    # 객체 핸들(그룹 코드 5, DIMSTYLE은 105)이 0이거나 16진수가 아니면 새 핸들 부여
-    seed_at = None
+def _sections(pairs: list[bytes]) -> dict[bytes, tuple[int, int]]:
+    """섹션 이름 → (시작, 끝) 쌍 인덱스. (0, SECTION) (2, 이름) ... (0, ENDSEC)"""
+    out = {}
+    starts = [k for k, v in enumerate(pairs) if v == b"SECTION" and k % 2 and pairs[k - 1] == b"0"]
+    ends = [k for k, v in enumerate(pairs) if v == b"ENDSEC" and k % 2 and pairs[k - 1] == b"0"]
+    for s in starts:
+        start = s - 1
+        end = next((e + 1 for e in ends if e > s), len(pairs))
+        if start + 3 < len(pairs) and pairs[start + 2] == b"2":
+            out[pairs[start + 3].strip()] = (start, end)
+    return out
+
+
+def _entries(pairs: list[bytes], lo: int, hi: int):
+    """[lo, hi) 범위의 객체마다 (시작, 끝) 쌍 인덱스를 냅니다. 객체는 (0, 종류)로 시작합니다."""
+    zeros = [k for k in range(lo, hi - 1, 2) if pairs[k] == b"0"]
+    for a, b in zip(zeros, zeros[1:] + [hi]):
+        yield a, b
+
+
+def _name_table_entries(pairs: list[bytes], sections: dict) -> int:
+    """TABLES 섹션에서 이름(그룹 코드 2)이 없거나 빈 항목에 고유한 이름을 붙입니다 (제자리 수정)."""
+    if b"TABLES" not in sections:
+        return 0
+    lo, hi = sections[b"TABLES"]
+    fixes = []  # (시작, 끝, 이름 위치, 하위 클래스 표시 위치, 핸들, 종류)
+    for a, b in _entries(pairs, lo, hi):
+        kind = pairs[a + 1].strip()
+        if kind not in TABLE_ENTRIES:
+            continue
+        name_at = next((k for k in range(a + 2, b - 1, 2) if pairs[k] == b"2"), None)
+        if name_at is not None and pairs[name_at + 1].strip():
+            continue
+        handle = next((pairs[k + 1].strip() for k in range(a + 2, b - 1, 2) if pairs[k] in (b"5", b"105")), b"%d" % a)
+        marker = next((k for k in range(b - 2, a + 1, -2) if pairs[k] == b"100" and pairs[k + 1].strip().endswith(b"TableRecord")), None)
+        fixes.append((a, b, name_at, marker, handle, kind))
+    if not fixes:
+        return 0
+    block_names = _block_record_names(pairs, sections) if any(f[5] == b"BLOCK_RECORD" for f in fixes) else {}
+    for a, b, name_at, marker, handle, kind in reversed(fixes):  # 뒤에서부터 넣어야 인덱스가 안 밀림
+        name = (block_names.get(handle) if kind == b"BLOCK_RECORD" else None) or "_이름없음_".encode() + handle
+        if name_at is not None:
+            pairs[name_at + 1] = name
+        else:
+            # 이름은 마지막 하위 클래스 표시(예: AcDbLinetypeTableRecord) 다음에 와야 함
+            at = marker + 2 if marker is not None else b
+            pairs[at:at] = [b"2", name]
+    return len(fixes)
+
+
+def _block_record_names(pairs: list[bytes], sections: dict) -> dict[bytes, bytes]:
+    """블록 레코드 핸들 → BLOCKS 섹션의 BLOCK 이름 (BLOCK의 소유자가 블록 레코드)"""
+    out = {}
+    if b"BLOCKS" not in sections:
+        return out
+    for a, b in _entries(pairs, *sections[b"BLOCKS"]):
+        if pairs[a + 1].strip() != b"BLOCK":
+            continue
+        owner = next((pairs[k + 1].strip() for k in range(a + 2, b - 1, 2) if pairs[k] == b"330"), None)
+        name = next((pairs[k + 1].strip() for k in range(a + 2, b - 1, 2) if pairs[k] == b"2" and pairs[k + 1].strip()), None)
+        if owner and name:
+            out[owner] = name
+    return out
+
+
+def _fix_handles(pairs: list[bytes]) -> int:
+    """객체 핸들(그룹 코드 5, DIMSTYLE은 105)이 0이거나 16진수가 아니면 새 핸들을 붙입니다."""
+    seed_at = next((k + 3 for k in range(0, len(pairs) - 3, 2) if pairs[k] == b"9" and pairs[k + 1].strip() == b"$HANDSEED"), None)
     used = 0
     bad = []
-    for k in range(0, len(out) - 1, 2):
-        code, value = out[k], out[k + 1]
-        if code == b"9" and value.strip() == b"$HANDSEED":
-            seed_at = k + 3  # 다음 쌍(5, 값)의 값
-        elif code in (b"5", b"105") and k + 1 != seed_at:
-            if k >= 2 and out[k - 2] == b"0":  # 객체 시작(0, 종류) 바로 다음의 핸들만
-                if _valid_handle(value):
-                    used = max(used, int(value.strip(), 16))
-                else:
-                    bad.append(k + 1)
-    if seed_at is not None and seed_at < len(out) and _valid_handle(out[seed_at]):
-        used = max(used, int(out[seed_at].strip(), 16) - 1)
+    for k in range(2, len(pairs) - 1, 2):
+        if (pairs[k] == b"5" or pairs[k] == b"105") and pairs[k - 2] == b"0":  # 객체 시작 바로 다음의 핸들
+            value = pairs[k + 1]
+            if _valid_handle(value):
+                used = max(used, int(value.strip(), 16))
+            else:
+                bad.append(k + 1)
+    if not bad:
+        return 0
+    if seed_at is not None and seed_at < len(pairs) and _valid_handle(pairs[seed_at]):
+        used = max(used, int(pairs[seed_at].strip(), 16) - 1)
     for k in bad:
         used += 1
-        out[k] = b"%X" % used
-    if bad and seed_at is not None and seed_at < len(out):
-        out[seed_at] = b"%X" % (used + 1)
-    fixes += len(bad)
+        pairs[k] = b"%X" % used
+    if seed_at is not None and seed_at < len(pairs):
+        pairs[seed_at] = b"%X" % (used + 1)
+    return len(bad)
 
+
+def _prune_blocks(pairs: list[bytes], sections: dict) -> list[bytes]:
+    """Model Space·Layout에서 (중첩까지) 쓰지 않는 블록 정의를 뺍니다.
+
+    도면 양식 파일에는 쓰지 않는 블록(로고·기호 등)이 수십만 객체씩 남아 있는 경우가 많아
+    읽기 시간을 크게 줄입니다. 이름(INSERT·치수·표의 그룹 코드 2)이나 핸들(340~349, 360~369)로
+    참조되는 블록은 남깁니다.
+    """
+    if b"BLOCKS" not in sections:
+        return pairs
+
+    def refs(lo: int, hi: int, names: set, handles: set) -> None:
+        for a, b in _entries(pairs, lo, hi):
+            by_name = pairs[a + 1].strip() in NAME_REFS
+            for k in range(a + 2, b - 1, 2):
+                code = pairs[k]
+                if by_name and code == b"2":
+                    names.add(pairs[k + 1].strip().lower())
+                elif len(code) == 3 and code[:2] in (b"34", b"36"):
+                    handles.add(pairs[k + 1].strip().upper())
+
+    lo, hi = sections[b"BLOCKS"]
+    blocks = []  # (시작, 끝, 이름, 블록 레코드 핸들)
+    start = None
+    for a, b in _entries(pairs, lo, hi):
+        kind = pairs[a + 1].strip()
+        if kind == b"BLOCK":
+            start = a
+            name = next((pairs[k + 1].strip() for k in range(a + 2, b - 1, 2) if pairs[k] == b"2"), b"")
+            owner = next((pairs[k + 1].strip().upper() for k in range(a + 2, b - 1, 2) if pairs[k] == b"330"), b"")
+        elif kind == b"ENDBLK" and start is not None:
+            blocks.append((start, b, name.lower(), owner))
+            start = None
+    if not blocks:
+        return pairs
+    names: set = set()
+    handles: set = set()
+    for sec in (b"ENTITIES", b"OBJECTS"):
+        if sec in sections:
+            refs(*sections[sec], names, handles)
+    keep: set = set()
+    changed = True
+    while changed:
+        changed = False
+        for start, end, name, owner in blocks:
+            if (start, end) not in keep and (name.startswith((b"*model_space", b"*paper_space"))
+                                             or name in names or (owner and owner in handles)):
+                keep.add((start, end))
+                refs(start, end, names, handles)
+                changed = True
+    drop = [(s, e) for s, e, _, _ in blocks if (s, e) not in keep]
+    if not drop:
+        return pairs
+    out: list[bytes] = []
+    pos = 0
+    for s, e in drop:
+        out += pairs[pos:s]
+        pos = e
+    out += pairs[pos:]
+    return out
+
+
+DROP_OBJECTS = {b"SORTENTSTABLE"}  # LibreDWG 0.13이 잘못된 형식으로 쓰는 그리기 순서 객체 (출력에 영향 없음)
+
+
+def _drop_objects(pairs: list[bytes], sections: dict) -> list[bytes]:
+    """OBJECTS 섹션에서 DROP_OBJECTS 종류의 객체를 뺍니다."""
+    if b"OBJECTS" not in sections:
+        return pairs
+    drop = [(a, b) for a, b in _entries(pairs, *sections[b"OBJECTS"]) if pairs[a + 1].strip() in DROP_OBJECTS]
+    if not drop:
+        return pairs
+    out: list[bytes] = []
+    pos = 0
+    for a, b in drop:
+        out += pairs[pos:a]
+        pos = b
+    return out + pairs[pos:]
+
+
+def _fix_all_layers_off(pairs: list[bytes], sections: dict) -> int:
+    """모든 레이어가 꺼져 있으면(색 번호가 음수) 다시 켭니다.
+
+    LibreDWG 0.13은 일부 DWG(R2010 등)에서 레이어 색을 잘못 써서 모든 레이어가 꺼진 것으로
+    나옵니다. 실제 도면에서 모든 레이어가 꺼진 경우는 없으므로 이때만 고칩니다.
+    일부만 꺼진 레이어는 작성자의 의도이므로 그대로 둡니다.
+    """
+    if b"TABLES" not in sections:
+        return 0
+    colors = []
+    for a, b in _entries(pairs, *sections[b"TABLES"]):
+        if pairs[a + 1].strip() == b"LAYER":
+            colors += [k + 1 for k in range(a + 2, b - 1, 2) if pairs[k] == b"62"]
+    if len(colors) < 2 or not all(pairs[k].strip().startswith(b"-") for k in colors):
+        return 0
+    for k in colors:
+        pairs[k] = pairs[k].strip()[1:]
+    return 1
+
+
+def _repair_dxf(path: str) -> tuple[int, bool]:
+    """LibreDWG 출력을 ezdxf가 빠르고 안전하게 읽을 수 있게 정리합니다.
+
+    1) 줄바꿈이 섞인 문자열로 깨진 줄 구조 복구
+    2) 이름이 없는 레이어·선종류·블록 등 테이블 항목에 이름 붙이기
+    3) 핸들이 0이거나 잘못된 객체에 새 핸들 붙이기
+    4) 쓰지 않는 블록 정의 제거
+    5) LibreDWG의 \\U+XXXX 한글 표기를 UTF-8 글자로 풀기
+    (고친 곳 수, UTF-8로 읽어도 되는지)를 돌려줍니다.
+    """
+    with open(path, "rb") as f:
+        data = f.read()
+    if b"\\U+" in data:
+        data = UPLUS.sub(_uplus, data)
+    pairs, fixes = _to_pairs(data)
+    del data
+    sections = _sections(pairs)
+    fixes += _name_table_entries(pairs, sections)
+    fixes += _fix_handles(pairs)
+    fixes += _fix_all_layers_off(pairs, sections)
+    pairs = _prune_blocks(pairs, _sections(pairs))
+    pairs = _drop_objects(pairs, _sections(pairs))
+    text = b"\n".join(pairs) + b"\n"
+    try:
+        text.decode("utf-8")
+        utf8 = True
+    except UnicodeDecodeError:  # 코드 페이지(예: CP949)로 쓰인 오래된 DXF
+        utf8 = False
     with open(path, "wb") as f:
-        f.write(b"\n".join(out) + b"\n")
-    return fixes
+        f.write(text)
+    return fixes, utf8
 
 
 def _read(path: str):
     """DXF를 읽고 (문서, 복구한 곳 수)를 돌려줍니다.
 
-    ezdxf recover는 LibreDWG의 \\U+XXXX 한글 표기를 풀고 잘못된 객체를 고쳐 주므로
-    일반 읽기보다 느려도 이것을 씁니다. 읽지 못하면 _repair_dxf로 고친 뒤 다시 읽습니다.
+    LibreDWG 출력을 _repair_dxf로 정리한 뒤, UTF-8이면 빠른 ezdxf.readfile + audit로 읽고
+    아니면(또는 실패하면) 느리지만 관대한 ezdxf recover로 읽습니다.
+    바이너리 DXF는 정리하지 않고 recover로 읽습니다.
     """
-    try:
-        doc, _ = recover.readfile(path)
-        fixes = 0
-    except Exception:  # 줄 구조·핸들 0·이름 없는 테이블 항목 등
-        fixes = _repair_dxf(path)
+    with open(path, "rb") as f:
+        binary = f.read(22).startswith(b"AutoCAD Binary DXF")
+    fixes, utf8 = (0, False) if binary else _repair_dxf(path)
+    doc = None
+    if utf8:
+        try:
+            doc = ezdxf.readfile(path, encoding="utf-8")
+            doc.audit()
+        except Exception:
+            doc = None
+    if doc is None:
         doc, _ = recover.readfile(path)
     return doc, fixes + _clean_names(doc)
 
@@ -215,7 +379,7 @@ def _clean_names(doc) -> int:
 def _repair_warning(fixes: int, what: str) -> list[str]:
     if not fixes:
         return []
-    return [f"{what}의 DWG 변환 결과에서 읽을 수 없는 부분 {fixes}곳을 복구했습니다(깨진 문자열·잘못된 객체 번호·이름 없는 레이어/블록 등). 줄바꿈이 포함된 글자는 한 줄로 표시될 수 있습니다."]
+    return [f"{what}의 DWG 변환 결과에서 읽을 수 없는 부분 {fixes}곳을 복구했습니다(깨진 문자열·잘못된 객체 번호·이름 없는 레이어/블록·꺼진 레이어 등). 줄바꿈이 포함된 글자는 한 줄로 표시될 수 있습니다."]
 
 
 # --------------------------------------------------------------- 도곽 검출
@@ -428,9 +592,10 @@ def _segments(entities, depth: int = 0, out: list | None = None) -> list[tuple]:
             length = max(dx, dy)
             if length <= 0:
                 continue
-            if dy <= length * 1e-6:
+            # 손으로 그린 도곽은 선이 살짝 기울어 있는 경우가 많아 약 0.6°까지 허용
+            if dy <= length * 0.01:
                 out.append((H, (a.y + b.y) / 2, min(a.x, b.x), max(a.x, b.x)))
-            elif dx <= length * 1e-6:
+            elif dx <= length * 0.01:
                 out.append((V, (a.x + b.x) / 2, min(a.y, b.y), max(a.y, b.y)))
     return out
 
@@ -607,11 +772,18 @@ def _frame_space(doc):
     return best
 
 
-def reference(dxf_path: str) -> dict:
+def _file_stem(path: str) -> str:
+    """'..\\도면\\도곽.dwg' → '도곽' (대소문자·한글 정규화 차이 무시)"""
+    name = unicodedata.normalize("NFC", path.replace("\\", "/").rsplit("/", 1)[-1]).strip().lower()
+    return name.rsplit(".", 1)[0] if "." in name else name
+
+
+def reference(dxf_path: str, file_name: str = "") -> dict:
     """기준 도곽 파일에서 도곽의 블록 이름·가로세로 비율·내부 선 배치를 읽습니다."""
-    global _reference
+    global _reference, _ref_doc, _ref_space
     doc, fixes = _read(dxf_path)
     space = _frame_space(doc)
+    _ref_doc, _ref_space = doc, space
     index = SegIndex(_segments(space))
     if index.box is None:
         kinds = Counter(e.dxftype() for e in space)
@@ -632,11 +804,121 @@ def reference(dxf_path: str) -> dict:
         b = SegIndex(_segments([ins])).box
         if b is not None and b.size.x * b.size.y >= outer.size.x * outer.size.y * 0.8:
             names.add(block.name)
+    base = Vec2(doc.header.get("$INSBASE", (0, 0, 0)))  # 외부참조로 삽입될 때의 기준점
+    labels = _title_labels(space, outer)
     _reference = {"names": sorted(names), "ratio": outer.size.x / outer.size.y, "pattern": _pattern(index, outer),
-                  "width": outer.size.x, "height": outer.size.y}
+                  "width": outer.size.x, "height": outer.size.y, "stem": _file_stem(file_name),
+                  "box": BoundingBox2d([outer.extmin - base, outer.extmax - base]), "base": base, "labels": labels}
     return {"names": _reference["names"], "ratio": round(_reference["ratio"], 4), "width": outer.size.x,
+            "labels": sorted(labels),
             "height": outer.size.y, "lineCount": len(_reference["pattern"]),
             "space": "Model" if space.is_modelspace else space.name, "warnings": warnings}
+
+
+def _bind_reference_xrefs(doc) -> list[str]:
+    """도면의 외부참조 중 기준 도곽 파일을 가리키는 것을 찾아, 기준 도곽 내용을 블록으로 넣습니다.
+
+    외부참조 내용은 도면 파일에 없으므로, 사용자가 올린 기준 도곽 파일이 그 내용입니다.
+    파일 이름(경로 제외)이나 외부참조 이름이 기준 도곽 파일 이름과 같으면 연결합니다.
+    """
+    stem = _reference.get("stem") if _reference else ""
+    if not stem:
+        return []
+    bound = []
+    for layout in doc.blocks:
+        block = layout.block
+        if not _is_xref(layout):
+            continue
+        path = block.dxf.get("xref_path", "") or ""
+        if _file_stem(path) != stem and _file_stem(layout.name) != stem:
+            continue
+        block.dxf.flags = block.dxf.flags & ~(4 | 8 | 32 | 64)  # XREF·오버레이·해석됨 표시 해제
+        block.dxf.discard("xref_path")
+        block.dxf.base_point = Vec3(_reference["base"])
+        try:
+            importer = Importer(_ref_doc, doc)
+            importer.import_entities([e for e in _ref_space if e.dxftype() not in ("OLE2FRAME", "IMAGE", "VIEWPORT")], layout)
+            importer.finalize()
+        except Exception:  # 내용을 못 넣어도 도곽 위치는 찾을 수 있음
+            pass
+        bound.append(layout.name)
+    return bound
+
+
+NUMBER_LABEL = re.compile(r"drawing\s*no|dwg\.?\s*no|도\s*면\s*번\s*호", re.I)
+TITLE_LABEL = re.compile(r"^\s*(drawing\s*)?title\s*:?\s*$|도\s*면\s*명|^\s*명\s*칭\s*$", re.I)
+
+
+def _text_height(e) -> float:
+    return (e.dxf.get("char_height", 0) if e.dxftype() == "MTEXT" else e.dxf.get("height", 0)) or 0
+
+
+def _plain(e) -> str:
+    try:
+        return (e.plain_text() if e.dxftype() == "MTEXT" else e.dxf.text or "").strip()
+    except Exception:
+        return ""
+
+
+def _title_labels(space, outer: BoundingBox2d) -> dict:
+    """기준 도곽 표제란의 'DRAWING NO', 'TITLE' 같은 라벨 위치(도곽 기준 0~1)와 그 칸의 범위."""
+    w, h = outer.size.x, outer.size.y
+    texts = []
+    for e in space.query("TEXT MTEXT"):
+        p = e.dxf.insert
+        height = _text_height(e) or 0
+        texts.append((_plain(e), (p.x - outer.extmin.x) / w, (p.y - outer.extmin.y) / h, height / h))
+    labels = {}
+    for kind, pattern in (("number", NUMBER_LABEL), ("title", TITLE_LABEL)):
+        found = next((t for t in texts if pattern.search(t[0])), None)
+        if found is None:
+            continue
+        _, x, y, th = found
+        # 칸의 오른쪽 끝: 같은 높이대에서 오른쪽에 있는 가장 가까운 다른 라벨
+        right = min((tx for s, tx, ty, _ in texts if tx > x + 0.02 and abs(ty - y) < max(th, 0.002) * 2 and s), default=1.0)
+        labels[kind] = (x, y, max(th, 0.002), right)
+    return labels
+
+
+def _page_titles(pages: list[dict]) -> None:
+    """기준 도곽 라벨 위치를 이용해 각 페이지의 도면번호·도면명을 읽어 넣습니다."""
+    labels = _reference.get("labels") or {}
+    if not labels or not pages:
+        return
+    texts = []
+    for e in _doc.modelspace().query("TEXT MTEXT"):
+        text = _plain(e)
+        if text:
+            p = e.dxf.insert
+            texts.append((p.x, p.y, text, _text_height(e) or 0))
+    if not texts:
+        return
+    xy = np.array([(x, y) for x, y, _, _ in texts])
+    heights = np.array([t[3] for t in texts])
+    strip = max(lab[1] + lab[2] * 3 for lab in labels.values())  # 표제란 높이대
+    for page in pages:
+        b = page["box"]
+        nx = (xy[:, 0] - b.extmin.x) / b.size.x
+        ny = (xy[:, 1] - b.extmin.y) / b.size.y
+        if "number" in labels:
+            x, y, th, right = labels["number"]
+            hit = np.flatnonzero((nx > x + 0.005) & (nx < right) & (np.abs(ny - y) < th * 2))
+            parts = [texts[i][2] for i in sorted(hit, key=lambda i: nx[i])]
+            if parts:
+                page["number"] = "".join(p if p.endswith(("-", "_")) else p + " " for p in parts).strip()
+        if "title" in labels:
+            x, y, th, right = labels["title"]
+            hit = np.flatnonzero((nx > x - 0.005) & (nx < right) & (ny < y + th * 2) & (ny > -0.001))
+            parts = [texts[i][2] for i in sorted(hit, key=lambda i: (-round(ny[i], 3), nx[i]))
+                     if not TITLE_LABEL.search(texts[i][2])]
+            if parts:
+                page["name"] = " ".join(parts)
+        if not page["name"]:  # 간지 등 표제란에 도면명이 없으면 도면 안의 가장 큰 글자
+            inside = np.flatnonzero((nx > 0) & (nx < 1) & (ny > strip) & (ny < 1))
+            if len(inside):
+                page["name"] = texts[inside[np.argmax(heights[inside])]][2][:60]
+        page["name"] = " ".join(page["name"].split())
+        page["number"] = " ".join(page["number"].split())
 
 
 def _ratio_ok(w: float, h: float) -> bool:
@@ -648,13 +930,14 @@ def _pattern_ok(index: SegIndex, outer: BoundingBox2d) -> bool:
     return len(pattern) < 3 or index.score(outer, pattern) >= 0.6
 
 
-def _match_reference(msp) -> tuple[list[dict], list[str]]:
+def _match_reference(msp, xrefs: Iterable[str] = ()) -> tuple[list[dict], list[str]]:
     names = set(_reference["names"])
     found: list[dict] = []
-    blocks: dict[str, BoundingBox2d | None] = {}  # 블록 이름 → 블록 좌표의 도곽 경계 (일치하지 않으면 None)
+    # 블록 이름 → 블록 좌표의 도곽 경계 (일치하지 않으면 None). 기준 도곽 외부참조는 기준 도곽 경계 그대로
+    blocks: dict[str, BoundingBox2d | None] = {name: _reference["box"] for name in xrefs}
     for ins in msp.query("INSERT"):
         block = ins.block()
-        if block is None or _is_xref(block):
+        if block is None or (_is_xref(block) and block.name not in blocks):
             continue
         if block.name not in blocks:
             index = SegIndex(_segments(block))
@@ -675,7 +958,8 @@ def _match_reference(msp) -> tuple[list[dict], list[str]]:
         except Exception:
             continue
         name, number = _attribs(ins)
-        found.append({"box": box, "source": "기준 블록", "block": block.name, "name": name, "number": number})
+        source = "기준 외부참조" if block.name in xrefs else "기준 블록"
+        found.append({"box": box, "source": source, "block": block.name, "name": name, "number": number})
 
     # 블록이 아닌 선으로 그려진(분해된) 도곽: 긴 선 하나를 한 변으로 가정하고 나머지 세 변을 확인
     index = SegIndex(_segments(msp, depth=MAX_DEPTH))  # 블록은 펼치지 않음 (위에서 처리)
@@ -709,9 +993,15 @@ def analyze(dxf_path: str, mode: str = "model", use_reference: bool = False) -> 
     unsupported = {e.dxftype() for e in _doc.modelspace() if e.dxftype() in ("IMAGE", "OLE2FRAME", "3DSOLID", "REGION", "BODY")}
     if unsupported:
         warnings.append("표시하지 못하는 객체가 있습니다: " + ", ".join(sorted(unsupported)))
-    xrefs = [b.name for b in _doc.blocks if _is_xref(b)]
+    bound = _bind_reference_xrefs(_doc) if use_reference and mode != "layouts" else []
+    xrefs = [b for b in _doc.blocks if _is_xref(b)]
     if xrefs:
-        warnings.append("외부참조(XREF)는 포함되지 않습니다: " + ", ".join(xrefs[:5]) + (" 외" if len(xrefs) > 5 else ""))
+        listed = ", ".join(f"{b.name}({b.block.dxf.get('xref_path', '') or '경로 없음'})" for b in xrefs[:5]) + (" 외" if len(xrefs) > 5 else "")
+        warnings.append(f"외부참조(XREF) 내용은 도면 파일에 없어 출력되지 않습니다: {listed}. "
+                        "도곽이 외부참조라면 그 파일을 기준 도곽 파일로 올려 주세요.")
+    if bound:
+        count = sum(1 for e in _doc.modelspace().query("INSERT") if e.dxf.name in bound)
+        warnings.append(f"외부참조 {', '.join(bound)}를 기준 도곽 파일로 연결했습니다 ({count}곳). 도곽 내용도 함께 출력합니다.")
 
     _pages = []
     if mode == "layouts":
@@ -727,12 +1017,15 @@ def analyze(dxf_path: str, mode: str = "model", use_reference: bool = False) -> 
     else:
         if use_reference and _reference is None:
             raise ValueError("기준 도곽 파일을 먼저 읽어야 합니다.")
-        frames, more = (_match_reference if use_reference else _find_frames)(_doc.modelspace())
+        frames, more = _match_reference(_doc.modelspace(), bound) if use_reference else _find_frames(_doc.modelspace())
         warnings += more
         for i, f in enumerate(frames, 1):
             b = f["box"]
-            _pages.append({"id": f"P{i}", "box": b, "name": f["name"] or f["block"], "number": f["number"],
+            name = f["name"] or ("" if f["source"] == "기준 외부참조" else f["block"])
+            _pages.append({"id": f"P{i}", "box": b, "name": name, "number": f["number"],
                            "source": f["source"], "width": b.size.x, "height": b.size.y})
+        if use_reference:
+            _page_titles(_pages)
         if not _pages:
             warnings.append("기준 도곽과 같은 도곽을 찾지 못했습니다. 기준 파일과 도면의 도곽이 같은 양식인지 확인하세요." if use_reference
                             else "도곽을 찾지 못했습니다. 도곽이 닫힌 사각형(폴리라인)이나 블록으로 그려져 있는지 확인하세요.")
@@ -740,8 +1033,12 @@ def analyze(dxf_path: str, mode: str = "model", use_reference: bool = False) -> 
 
 
 # ----------------------------------------------------------------- 렌더링
-def _config(mono: bool) -> Configuration:
+def _config(mono: bool, flatten: float = 0.01) -> Configuration:
     return Configuration(
+        # 곡선을 직선으로 근사하는 허용 오차(도면 단위). 기본값 0.01은 큰 도면에서 지나치게 촘촘해 느림
+        max_flattening_distance=flatten,
+        # 점선의 가장 짧은 대시. 용지에서 약 0.2 mm보다 짧으면 보이지 않고 선 조각만 많아짐
+        min_dash_length=max(flatten * 4, 0.1),
         background_policy=BackgroundPolicy.WHITE,
         color_policy=ColorPolicy.BLACK if mono else ColorPolicy.COLOR_SWAP_BW,
         min_lineweight=1.2,  # 1/300 inch 단위 ≈ 0.1 mm
@@ -784,7 +1081,7 @@ class EntityIndex:
                 return c[0] - r, c[1] - r, c[0] + r, c[1] + r
             if t in ("TEXT", "ATTRIB", "MTEXT"):
                 p = e.dxf.insert
-                h = e.dxf.get("height", 0) or e.dxf.get("char_height", 0) or 1
+                h = _text_height(e) or 1
                 text = e.plain_text() if t == "MTEXT" else (e.dxf.text or "")
                 reach = h * max(len(text), 1) * 1.2 + (e.dxf.get("width", 0) or 0)
                 return p[0] - reach, p[1] - reach, p[0] + reach, p[1] + reach
@@ -802,10 +1099,53 @@ class EntityIndex:
                 corners = Vec3.list([(x0, y0), (x1, y0), (x1, y1), (x0, y1)])
                 m = e.matrix44()
                 pts = list(m.transform_vertices(corners))
-                if e.dxf.get("column_count", 1) > 1 or e.dxf.get("row_count", 1) > 1 or len(e.attribs):
-                    ext = bbox.extents([e], cache=_cache)  # MINSERT·속성은 정확히 계산
+                if e.dxf.get("column_count", 1) > 1 or e.dxf.get("row_count", 1) > 1:
+                    ext = bbox.extents([e], cache=_cache)  # MINSERT는 정확히 계산
                     pts += [ext.extmin, ext.extmax] if ext.has_data else []
+                for a in e.attribs:  # 속성 문자는 삽입점 주변으로 넉넉히
+                    p, h = a.dxf.insert, a.dxf.get("height", 1) or 1
+                    reach = h * max(len(a.dxf.text or ""), 1) * 1.2
+                    pts += [(p[0] - reach, p[1] - reach), (p[0] + reach, p[1] + reach)]
                 return self._points_box(pts)
+            if t == "SPLINE":  # 곡선은 조정점(또는 맞춤점)들의 볼록 껍질 안에 있음
+                pts = list(e.control_points) or list(e.fit_points)
+                return self._points_box(pts) if pts else nan
+            if t == "HATCH":
+                pts = []
+                for path in e.paths:
+                    if hasattr(path, "vertices"):
+                        pts += [v[:2] for v in path.vertices]
+                    else:
+                        for edge in path.edges:
+                            for name in ("start", "end", "center"):
+                                if hasattr(edge, name):
+                                    pts.append(getattr(edge, name))
+                            if hasattr(edge, "radius"):
+                                c, r = edge.center, edge.radius
+                                pts += [(c[0] - r, c[1] - r), (c[0] + r, c[1] + r)]
+                            if hasattr(edge, "major_axis"):
+                                c, r = edge.center, Vec2(edge.major_axis).magnitude
+                                pts += [(c[0] - r, c[1] - r), (c[0] + r, c[1] + r)]
+                            if hasattr(edge, "control_points"):
+                                pts += list(edge.control_points)
+                if not pts:
+                    return nan
+                ocs = e.ocs()  # 경계는 OCS 좌표
+                return self._points_box([ocs.to_wcs((p[0], p[1], e.dxf.elevation.z)) for p in pts])
+            if t == "ELLIPSE":
+                c, r = e.dxf.center, Vec3(e.dxf.major_axis).magnitude
+                return c[0] - r, c[1] - r, c[0] + r, c[1] + r
+            if t in ("SOLID", "TRACE", "3DFACE"):
+                return self._points_box([e.dxf.get(f"vtx{i}") for i in range(4) if e.dxf.hasattr(f"vtx{i}")])
+            if t == "POINT":
+                p = e.dxf.location
+                return p[0], p[1], p[0], p[1]
+            if t == "DIMENSION":  # 정의점과 치수 문자 위치로 대략
+                pts = [e.dxf.get(n) for n in ("defpoint", "defpoint2", "defpoint3", "defpoint4", "defpoint5", "text_midpoint") if e.dxf.hasattr(n)]
+                if pts:
+                    b = self._points_box(pts)
+                    pad = max(b[2] - b[0], b[3] - b[1]) * 0.2 + 1
+                    return b[0] - pad, b[1] - pad, b[2] + pad, b[3] + pad
             ext = bbox.extents([e], cache=_cache)
             return (ext.extmin.x, ext.extmin.y, ext.extmax.x, ext.extmax.y) if ext.has_data else nan
         except Exception:
@@ -827,7 +1167,9 @@ def _record(page: dict, mono: bool, backend) -> tuple:
     """페이지 하나의 객체만 backend에 기록하고 (layout.Page, render_box)를 돌려줍니다."""
     global _entity_index
     ctx = RenderContext(_doc)
-    frontend = Frontend(ctx, backend, config=_config(mono))
+    # 도곽 폭의 1/8000 (A3 출력 기준 약 0.05 mm) 정도면 눈으로 구분되지 않음
+    flatten = max(page["width"], page["height"]) / 8000 if "box" in page else 0.01
+    frontend = Frontend(ctx, backend, config=_config(mono, flatten))
     if "layout" in page:
         lay = _doc.layouts.get(page["layout"])
         frontend.draw_layout(lay)
@@ -878,9 +1220,12 @@ def take_skipped() -> int:
     return count
 
 
-def render_pdf(page_ids: Iterable[str], paper: str = "A3", mono: bool = True) -> bytes:
+def render_pdf(page_ids: Iterable[str], paper: str = "A3", mono: bool = True, progress=None) -> bytes:
     writer = PdfWriter()
-    for pid in page_ids:
+    page_ids = list(page_ids)
+    for done, pid in enumerate(page_ids):
+        if progress is not None:
+            progress(done, len(page_ids))
         page = _get(pid)
         be = PdfBackend()
         lay, box = _record(page, mono, be)

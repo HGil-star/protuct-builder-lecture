@@ -50,7 +50,7 @@ test('기준 도곽과 같은 양식만 찾는다 (분해된 선 포함, 오검�
   const drawing = await fixture('drawing.dwg');
   const reference = { bytes: await fixture('reference.dwg'), name: 'reference.dwg' };
   const result = await engine.analyze(drawing, 'drawing.dwg', 'model', reference);
-  assert.deepEqual(result.reference, { names: ['SHEET_K'], ratio: 1.6, width: 800, height: 500, lineCount: 7, space: 'Model', warnings: [] });
+  assert.deepEqual(result.reference, { names: ['SHEET_K'], ratio: 1.6, width: 800, labels: [], height: 500, lineCount: 7, space: 'Model', warnings: [] });
   assert.deepEqual(result.pages.map(p => [p.source, p.name, p.number, Math.round(p.width)]), [
     ['기준 블록', '배치도', 'C-001', 8000],
     ['기준 블록', '단면도', 'C-002', 8000],
@@ -109,3 +109,10 @@ for (const [kind, nth] of [['LAYER', 0], ['LTYPE', 0], ['BLOCK_RECORD', 0]]) {
     assert.equal(engine.pdf(result.pages.map(p => p.id), 'A3', true).skipped, 0);
   });
 }
+
+test('모든 레이어가 꺼진 것으로 변환된 도면은 레이어를 다시 켠다 (LibreDWG 0.13 색 오류)', async () => {
+  const result = await engine.analyze(await fixture('all-layers-off.dxf'), 'x.dxf', 'model');
+  assert.equal(result.pages.length, 4);
+  const pdf = Buffer.from(engine.pdf(['P1'], 'A3', true).bytes);
+  assert.ok(pdf.length > 3000, `빈 페이지가 아니어야 함 (${pdf.length} bytes)`);
+});
