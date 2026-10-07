@@ -5,10 +5,12 @@ DWG는 LibreDWG(dwg2dxf)로 DXF로 바꾼 뒤 이 모듈에 전달합니다.
 """
 from __future__ import annotations
 
+import bisect
 import copy
 import re
 import statistics
 import zlib
+from collections import Counter
 from typing import Iterable
 
 from ezdxf import bbox, recover
@@ -20,7 +22,8 @@ from ezdxf.addons.drawing.config import (
     Configuration,
 )
 from ezdxf.fonts import fonts
-from ezdxf.math import BoundingBox2d, Vec2
+import numpy as np
+from ezdxf.math import BoundingBox2d, Vec2, Vec3
 from ezdxf.path import Command
 
 FRAME_NAME = re.compile(r"도곽|표제|title|frame|border|sheet|form|dogak", re.I)
@@ -84,7 +87,11 @@ def _repair_dxf(path: str) -> int:
 
 
 def _read(path: str):
-    """DXF를 읽고 (문서, 복구한 곳 수)를 돌려줍니다."""
+    """DXF를 읽고 (문서, 복구한 곳 수)를 돌려줍니다.
+
+    ezdxf recover는 LibreDWG의 \\U+XXXX 한글 표기를 풀고 잘못된 객체를 고쳐 주므로
+    일반 읽기보다 느려도 이것을 씁니다. 줄 구조가 깨졌으면 복구 후 다시 읽습니다.
+    """
     try:
         doc, _ = recover.readfile(path)
         return doc, 0
@@ -272,96 +279,306 @@ def _arrange(found: list[dict]) -> tuple[list[dict], list[str]]:
     return frames, warnings
 
 
-def _normalize(inner: BoundingBox2d, outer: BoundingBox2d) -> tuple[float, float, float, float]:
+# ------------------------------------------------- 기준 도곽 (선분 기반 인식)
+# 도곽을 "사각형 객체"가 아니라 가로·세로 선분의 집합으로 봅니다. 끊어진 선, 모서리에서
+# 튀어나온 선, 꼭짓점이 많은 폴리라인, 분해된 도곽, 중첩 블록을 모두 같은 방식으로 다룹니다.
+H, V = 0, 1  # 가로 선분: (y, x0, x1), 세로 선분: (x, y0, y1)
+MAX_DEPTH = 4
+
+
+def _segments(entities, depth: int = 0, out: list | None = None) -> list[tuple]:
+    """축에 나란한 선분 (방향, 좌표, 시작, 끝)을 모읍니다. 블록은 MAX_DEPTH까지 펼칩니다."""
+    out = [] if out is None else out
+    for e in entities:
+        t = e.dxftype()
+        pts = None
+        if t == "LINE":
+            pts = [Vec2(e.dxf.start), Vec2(e.dxf.end)]
+            closed = False
+        elif t == "LWPOLYLINE":
+            pts = [Vec2(p) for p in e.get_points("xy")]
+            closed = e.closed
+        elif t == "POLYLINE" and e.is_2d_polyline:
+            pts = [Vec2(v.dxf.location) for v in e.vertices]
+            closed = e.is_closed
+        elif t == "INSERT" and depth < MAX_DEPTH:
+            try:
+                block = e.block()
+                if block is not None and not _is_xref(block):
+                    _segments(e.virtual_entities(), depth + 1, out)
+            except Exception:  # 변환할 수 없는 블록(비균일 축척 등)은 건너뜀
+                pass
+            continue
+        if not pts or len(pts) < 2:
+            continue
+        pairs = list(zip(pts, pts[1:])) + ([(pts[-1], pts[0])] if closed else [])
+        for a, b in pairs:
+            dx, dy = abs(a.x - b.x), abs(a.y - b.y)
+            length = max(dx, dy)
+            if length <= 0:
+                continue
+            if dy <= length * 1e-6:
+                out.append((H, (a.y + b.y) / 2, min(a.x, b.x), max(a.x, b.x)))
+            elif dx <= length * 1e-6:
+                out.append((V, (a.x + b.x) / 2, min(a.y, b.y), max(a.y, b.y)))
+    return out
+
+
+class SegIndex:
+    """같은 직선 위의 선분을 합치고, 사각형 변이 선으로 덮인 비율을 빠르게 계산합니다."""
+
+    def __init__(self, segments: list[tuple]) -> None:
+        self.box = None
+        if segments:
+            xs = [s[2] for s in segments if s[0] == H] + [s[3] for s in segments if s[0] == H] + [s[1] for s in segments if s[0] == V]
+            ys = [s[2] for s in segments if s[0] == V] + [s[3] for s in segments if s[0] == V] + [s[1] for s in segments if s[0] == H]
+            self.box = BoundingBox2d([(min(xs), min(ys)), (max(xs), max(ys))])
+        size = max(self.box.size.x, self.box.size.y) if self.box else 1.0
+        grid = size * 1e-7 or 1e-9
+        buckets: dict[tuple, list] = {}
+        for o, c, a0, a1 in segments:
+            buckets.setdefault((o, round(c / grid)), []).append((a0, a1, c))
+        self.lines: list[list[tuple]] = [[], []]
+        for (o, _), items in buckets.items():
+            items.sort()
+            c = items[0][2]
+            cur0, cur1 = items[0][0], items[0][1]
+            for a0, a1, _ in items[1:]:
+                if a0 <= cur1 + grid:
+                    cur1 = max(cur1, a1)
+                else:
+                    self.lines[o].append((c, cur0, cur1))
+                    cur0, cur1 = a0, a1
+            self.lines[o].append((c, cur0, cur1))
+        for o in (H, V):
+            self.lines[o].sort()
+        self.coords = [[l[0] for l in self.lines[o]] for o in (H, V)]
+
+    def coverage(self, o: int, c: float, a0: float, a1: float, tol: float) -> float:
+        """좌표 c(±tol)에서 [a0, a1] 구간이 선으로 덮인 비율 (0~1)."""
+        if a1 <= a0:
+            return 0.0
+        i = bisect.bisect_left(self.coords[o], c - tol)
+        j = bisect.bisect_right(self.coords[o], c + tol)
+        spans = sorted((max(a0, s), min(a1, e)) for _, s, e in self.lines[o][i:j] if e > a0 and s < a1)
+        covered, end = 0.0, a0
+        for s, e in spans:
+            if e > end:
+                covered += e - max(s, end)
+                end = e
+        return covered / (a1 - a0)
+
+    def is_rect(self, box: BoundingBox2d, need: float = 0.9) -> bool:
+        x0, y0, x1, y1 = box.extmin.x, box.extmin.y, box.extmax.x, box.extmax.y
+        tol = min(box.size.x, box.size.y) * 0.003
+        return (self.coverage(H, y0, x0, x1, tol) >= need and self.coverage(H, y1, x0, x1, tol) >= need
+                and self.coverage(V, x0, y0, y1, tol) >= need and self.coverage(V, x1, y0, y1, tol) >= need)
+
+    def long_lines(self, min_len: float):
+        for o in (H, V):
+            for c, a0, a1 in self.lines[o]:
+                if a1 - a0 >= min_len:
+                    yield o, c, a0, a1
+
+    def score(self, outer: BoundingBox2d, pattern: list[tuple]) -> float:
+        """기준 도곽의 내부 선 배치(pattern)가 outer 안에 같은 상대 위치로 있는 비율."""
+        if not pattern:
+            return 1.0
+        w, h = outer.size.x, outer.size.y
+        x, y = outer.extmin.x, outer.extmin.y
+        hit = 0
+        for o, c, a0, a1 in pattern:
+            if o == H:
+                ok = self.coverage(H, y + c * h, x + a0 * w, x + a1 * w, h * 0.008) >= 0.8
+            else:
+                ok = self.coverage(V, x + c * w, y + a0 * h, y + a1 * h, w * 0.008) >= 0.8
+            hit += ok
+        return hit / len(pattern)
+
+
+def _rect_from_line(index: SegIndex, o: int, c: float, a0: float, a1: float, ratio: float | None = None) -> list[BoundingBox2d]:
+    """긴 선 하나를 도곽의 한 변으로 보고, 닿아 있는 수직선과 맞은편 평행선으로 사각형을 만듭니다.
+
+    모서리에서 선이 튀어나오거나 덜 닿아도 되도록 양 끝은 수직선 위치로, 맞은편 변은
+    가장 가까운 평행선 위치로 맞춥니다. ratio를 주면 그 가로세로 비율로 맞은편 변을 찾습니다.
+    """
+    p = 1 - o  # 수직 방향
+    span = a1 - a0
+    tol = span * 0.01
+    lo_i = bisect.bisect_left(index.coords[p], a0 - tol)
+    hi_i = bisect.bisect_right(index.coords[p], a1 + tol)
+    touching = [l for l in index.lines[p][lo_i:hi_i][:5000]
+                if l[1] - tol <= c <= l[2] + tol and l[2] - l[1] >= span * 0.15]
+    if len(touching) < 2:
+        return []
+    lo, hi = touching[0][0], touching[-1][0]  # 좌표순 정렬되어 있음
+    if hi - lo < span * 0.5:
+        return []
+    width = hi - lo
+    results = []
+    for direction in (1, -1):
+        if ratio is not None:
+            depth = width / ratio if o == H else width * ratio
+        else:  # 양 끝 수직선이 뻗은 길이
+            ends = [(l[2] - c) if direction > 0 else (c - l[1]) for l in touching if abs(l[0] - lo) < tol or abs(l[0] - hi) < tol]
+            depth = max(ends, default=0)
+        if depth <= span * 0.05:
+            continue
+        target = c + direction * depth
+        # 맞은편 변: target 근처(±2%)에서 [lo, hi]를 가장 많이 덮는 평행선
+        snap_tol = depth * 0.02
+        i = bisect.bisect_left(index.coords[o], target - snap_tol)
+        j = bisect.bisect_right(index.coords[o], target + snap_tol)
+        best = None
+        for oc, s0, s1 in index.lines[o][i:j]:
+            if s1 > lo and s0 < hi:
+                cov = index.coverage(o, oc, lo, hi, tol * 0.3)
+                if cov >= 0.9 and (best is None or abs(oc - target) < abs(best - target)):
+                    best = oc
+        if best is None:
+            continue
+        lo_c, hi_c = sorted((c, best))
+        box = BoundingBox2d([(lo, lo_c), (hi, hi_c)] if o == H else [(lo_c, lo), (hi_c, hi)])
+        if index.is_rect(box):
+            results.append(box)
+    return results
+
+
+def _largest_rect(index: SegIndex) -> BoundingBox2d | None:
+    """선들이 이루는 가장 큰 사각형 (바깥 테두리)."""
+    if index.box is None:
+        return None
+    if index.is_rect(index.box):
+        return index.box
+    size = max(index.box.size.x, index.box.size.y)
+    longest = sorted(index.long_lines(size * 0.2), key=lambda l: l[2] - l[3])[:200]
+    best = None
+    for line in longest:
+        for box in _rect_from_line(index, *line):
+            if best is None or box.size.x * box.size.y > best.size.x * best.size.y:
+                best = box
+    return best
+
+
+def _pattern(index: SegIndex, outer: BoundingBox2d) -> list[tuple]:
+    """outer 안의 긴 선(표제란·내곽선 등)을 outer 기준 0~1 좌표로 바꿉니다. 긴 것부터 최대 60개."""
     w, h = outer.size.x, outer.size.y
-    return ((inner.extmin.x - outer.extmin.x) / w, (inner.extmin.y - outer.extmin.y) / h,
-            (inner.extmax.x - outer.extmin.x) / w, (inner.extmax.y - outer.extmin.y) / h)
+    x, y = outer.extmin.x, outer.extmin.y
+    edge = min(w, h) * 0.003
+    out = []
+    for o, c, a0, a1 in index.long_lines(min(w, h) * 0.03):
+        if o == H:
+            if not (y - edge < c < y + h + edge) or a1 < x or a0 > x + w:
+                continue
+            if abs(c - y) <= edge or abs(c - y - h) <= edge:
+                continue  # 바깥 테두리
+            out.append((H, (c - y) / h, max(0.0, (a0 - x) / w), min(1.0, (a1 - x) / w)))
+        else:
+            if not (x - edge < c < x + w + edge) or a1 < y or a0 > y + h:
+                continue
+            if abs(c - x) <= edge or abs(c - x - w) <= edge:
+                continue
+            out.append((V, (c - x) / w, max(0.0, (a0 - y) / h), min(1.0, (a1 - y) / h)))
+    out.sort(key=lambda s: s[2] - s[3])
+    return out[:60]
 
 
-def _layout_of(outer: BoundingBox2d, rects: Iterable[BoundingBox2d]) -> list[tuple]:
-    """outer 안 사각형(표제란·내곽선 등)의 상대 위치. 큰 것부터 최대 8개."""
-    tol = max(outer.size.x, outer.size.y) * 0.002
-    area = outer.size.x * outer.size.y
-    inner = [r for r in rects if _contains(outer, r, tol) and r.size.x * r.size.y < area * 0.995
-             and r.size.x * r.size.y > area * 0.002]
-    inner.sort(key=lambda r: -(r.size.x * r.size.y))
-    return [_normalize(r, outer) for r in inner[:8]]
+def _frame_space(doc):
+    """도곽이 그려진 공간: Model Space에 선이 없으면 선이 가장 많은 Layout."""
+    spaces = [doc.modelspace()] + [l for l in doc.layouts if not l.is_modelspace]
+    best, best_count = spaces[0], -1
+    for space in spaces:
+        count = len(_segments(space))
+        if count > best_count:
+            best, best_count = space, count
+        if space is spaces[0] and count:
+            break
+    return best
 
 
 def reference(dxf_path: str) -> dict:
-    """기준 도곽 파일에서 도곽의 블록 이름·가로세로 비율·내부 구획을 읽습니다."""
+    """기준 도곽 파일에서 도곽의 블록 이름·가로세로 비율·내부 선 배치를 읽습니다."""
     global _reference
     doc, fixes = _read(dxf_path)
-    msp = doc.modelspace()
-    ext = bbox.extents(msp)
-    if not ext.has_data:
-        raise ValueError("기준 도곽 파일이 비어 있습니다.")
-    full = BoundingBox2d([ext.extmin, ext.extmax])
-    names, candidates = set(), []
-    for ins in msp.query("INSERT"):
+    space = _frame_space(doc)
+    index = SegIndex(_segments(space))
+    if index.box is None:
+        kinds = Counter(e.dxftype() for e in space)
+        listing = ", ".join(f"{k} {n}개" for k, n in kinds.most_common(6)) or "객체 없음"
+        raise ValueError(f"기준 도곽 파일에서 가로·세로 선을 찾지 못했습니다. ({listing})")
+    warnings = _repair_warning(fixes, "기준 도곽 파일")
+    outer = _largest_rect(index)
+    if outer is None:
+        if min(index.box.size.x, index.box.size.y) <= 0:
+            raise ValueError("기준 도곽 파일의 선이 사각형 도곽을 이루지 않습니다. 도곽 하나가 그려진 파일인지 확인하세요.")
+        outer = index.box
+        warnings.append("기준 도곽의 바깥 테두리를 닫힌 사각형으로 확인하지 못해 선 전체 범위를 도곽으로 사용했습니다.")
+    names = set()
+    for ins in space.query("INSERT"):
         block = ins.block()
         if block is None or _is_xref(block):
             continue
-        e = bbox.extents([ins])
-        if e.has_data and (e.size.x * e.size.y) >= full.size.x * full.size.y * 0.8:
+        b = SegIndex(_segments([ins])).box
+        if b is not None and b.size.x * b.size.y >= outer.size.x * outer.size.y * 0.8:
             names.add(block.name)
-            border = _block_border(block)
-            if border is not None:
-                candidates.append((border, _rects(block)))
-    raw = _rects(msp)
-    for r in raw:
-        if r.size.x >= full.size.x * 0.9 and r.size.y >= full.size.y * 0.9:
-            candidates.append((r, raw))
-    if not candidates:
-        raise ValueError("기준 도곽 파일에서 도곽 테두리(닫힌 사각형)를 찾지 못했습니다. 도곽 하나만 그려진 파일을 선택하세요.")
-    outer, rects = max(candidates, key=lambda c: c[0].size.x * c[0].size.y)
-    _reference = {"names": sorted(names), "ratio": outer.size.x / outer.size.y, "inner": _layout_of(outer, rects),
+    _reference = {"names": sorted(names), "ratio": outer.size.x / outer.size.y, "pattern": _pattern(index, outer),
                   "width": outer.size.x, "height": outer.size.y}
-    return ({k: v for k, v in _reference.items() if k != "inner"}
-            | {"innerCount": len(_reference["inner"]), "warnings": _repair_warning(fixes, "기준 도곽 파일")})
+    return {"names": _reference["names"], "ratio": round(_reference["ratio"], 4), "width": outer.size.x,
+            "height": outer.size.y, "lineCount": len(_reference["pattern"]),
+            "space": "Model" if space.is_modelspace else space.name, "warnings": warnings}
 
 
-def _same_layout(ref_inner: list[tuple], inner: list[tuple]) -> bool:
-    """기준 도곽의 내부 구획 중 절반 이상이 같은 상대 위치에 있으면 같은 도곽."""
-    if not ref_inner:
-        return True
-    hit = sum(1 for r in ref_inner if any(all(abs(a - b) < 0.012 for a, b in zip(r, c)) for c in inner))
-    return hit * 2 >= len(ref_inner)
+def _ratio_ok(w: float, h: float) -> bool:
+    return w > 0 and h > 0 and abs((w / h) / _reference["ratio"] - 1) < 0.01
+
+
+def _pattern_ok(index: SegIndex, outer: BoundingBox2d) -> bool:
+    pattern = _reference["pattern"]
+    return len(pattern) < 3 or index.score(outer, pattern) >= 0.6
 
 
 def _match_reference(msp) -> tuple[list[dict], list[str]]:
-    ref = _reference
-    names = set(ref["names"])
+    names = set(_reference["names"])
     found: list[dict] = []
-    borders: dict[str, tuple] = {}
+    blocks: dict[str, BoundingBox2d | None] = {}  # 블록 이름 → 블록 좌표의 도곽 경계 (일치하지 않으면 None)
     for ins in msp.query("INSERT"):
         block = ins.block()
         if block is None or _is_xref(block):
             continue
-        if block.name not in borders:
-            border = _block_border(block)
-            ok = block.name in names or (
-                border is not None and abs(border.size.x / border.size.y / ref["ratio"] - 1) < 0.01
-                and _same_layout(ref["inner"], _layout_of(border, _rects(block))))
-            borders[block.name] = (border, ok)
-        border, ok = borders[block.name]
-        if not ok:
+        if block.name not in blocks:
+            index = SegIndex(_segments(block))
+            border = None
+            if index.box is not None:
+                if block.name in names:
+                    border = _largest_rect(index) or index.box
+                elif (_ratio_ok(index.box.size.x, index.box.size.y) and index.is_rect(index.box)
+                      and _pattern_ok(index, index.box)):
+                    border = index.box
+            blocks[block.name] = border
+        border = blocks[block.name]
+        if border is None:
             continue
-        if border is not None:
-            corners = [border.extmin, Vec2(border.extmax.x, border.extmin.y), border.extmax, Vec2(border.extmin.x, border.extmax.y)]
+        corners = [border.extmin, Vec2(border.extmax.x, border.extmin.y), border.extmax, Vec2(border.extmin.x, border.extmax.y)]
+        try:
             box = BoundingBox2d(Vec2(p) for p in ins.matrix44().transform_vertices(corners))
-        else:
-            e = bbox.extents([ins], cache=_cache)
-            if not e.has_data:
-                continue
-            box = BoundingBox2d([e.extmin, e.extmax])
+        except Exception:
+            continue
         name, number = _attribs(ins)
         found.append({"box": box, "source": "기준 블록", "block": block.name, "name": name, "number": number})
 
-    raw = _rects(msp)
-    for r in raw:
-        if abs(r.size.x / r.size.y / ref["ratio"] - 1) < 0.01 and _same_layout(ref["inner"], _layout_of(r, raw)):
-            found.append({"box": r, "source": "기준 형상", "block": "", "name": "", "number": ""})
+    # 블록이 아닌 선으로 그려진(분해된) 도곽: 긴 선 하나를 한 변으로 가정하고 나머지 세 변을 확인
+    index = SegIndex(_segments(msp, depth=MAX_DEPTH))  # 블록은 펼치지 않음 (위에서 처리)
+    if index.box is not None:
+        min_len = max(index.box.size.x, index.box.size.y) * 0.01
+        seen = set()
+        for line in index.long_lines(min_len):
+            for box in _rect_from_line(index, *line, ratio=_reference["ratio"]):
+                key = tuple(round(v / (min(box.size.x, box.size.y) * 0.01)) for v in (*box.extmin, *box.extmax))
+                if key in seen:
+                    continue
+                seen.add(key)
+                if _ratio_ok(box.size.x, box.size.y) and _pattern_ok(index, box):
+                    found.append({"box": box, "source": "기준 형상", "block": "", "name": "", "number": ""})
     return _arrange(found)
 
 
@@ -373,9 +590,10 @@ def _contains(outer: BoundingBox2d, inner: BoundingBox2d, tol: float) -> bool:
 # ------------------------------------------------------------------- 분석
 def analyze(dxf_path: str, mode: str = "model", use_reference: bool = False) -> dict:
     """도면을 읽고 페이지 후보 목록을 돌려줍니다."""
-    global _doc, _pages, _cache
+    global _doc, _pages, _cache, _entity_index
     _doc, fixes = _read(dxf_path)
     _cache = bbox.Cache()
+    _entity_index = None
     warnings: list[str] = _repair_warning(fixes, "도면 파일")
     unsupported = {e.dxftype() for e in _doc.modelspace() if e.dxftype() in ("IMAGE", "OLE2FRAME", "3DSOLID", "REGION", "BODY")}
     if unsupported:
@@ -419,8 +637,83 @@ def _config(mono: bool) -> Configuration:
     )
 
 
+class EntityIndex:
+    """Model Space 객체의 대략적인 경계를 한 번만 계산해 두고, 페이지 범위의 객체를 빠르게 고릅니다.
+
+    렌더링 대상을 고르는 용도라 넉넉하게 잡습니다(문자는 글자 수만큼 넓게). 블록은 정의의
+    경계를 한 번 구해 삽입 행렬로 옮기므로, 같은 블록이 많아도 빠릅니다.
+    """
+
+    def __init__(self, msp) -> None:
+        self.entities = list(msp)
+        block_boxes: dict[str, tuple | None] = {}
+        boxes = np.empty((len(self.entities), 4))
+        for i, e in enumerate(self.entities):
+            boxes[i] = self._box(e, block_boxes)
+        self.boxes = boxes
+
+    @staticmethod
+    def _points_box(points) -> tuple:
+        xs = [p[0] for p in points]
+        ys = [p[1] for p in points]
+        return min(xs), min(ys), max(xs), max(ys)
+
+    def _box(self, e, block_boxes) -> tuple:
+        nan = (np.nan,) * 4
+        try:
+            t = e.dxftype()
+            if t == "LINE":
+                return self._points_box([e.dxf.start, e.dxf.end])
+            if t == "LWPOLYLINE":
+                b = self._points_box(list(e.get_points("xy")))
+                pad = max(abs(e.dxf.const_width or 0), 0)
+                return b[0] - pad, b[1] - pad, b[2] + pad, b[3] + pad
+            if t in ("CIRCLE", "ARC"):
+                c, r = e.dxf.center, e.dxf.radius
+                return c[0] - r, c[1] - r, c[0] + r, c[1] + r
+            if t in ("TEXT", "ATTRIB", "MTEXT"):
+                p = e.dxf.insert
+                h = e.dxf.get("height", 0) or e.dxf.get("char_height", 0) or 1
+                text = e.plain_text() if t == "MTEXT" else (e.dxf.text or "")
+                reach = h * max(len(text), 1) * 1.2 + (e.dxf.get("width", 0) or 0)
+                return p[0] - reach, p[1] - reach, p[0] + reach, p[1] + reach
+            if t == "INSERT":
+                name = e.dxf.name
+                if name not in block_boxes:
+                    block = e.block()
+                    ext = bbox.extents(block, cache=_cache) if block is not None else None
+                    # 블록 좌표의 경계. 기준점(base point)은 matrix44()가 반영함
+                    block_boxes[name] = (ext.extmin, ext.extmax) if ext is not None and ext.has_data else None
+                bb = block_boxes[name]
+                if bb is None:
+                    return nan
+                (x0, y0, _), (x1, y1, _) = bb
+                corners = Vec3.list([(x0, y0), (x1, y0), (x1, y1), (x0, y1)])
+                m = e.matrix44()
+                pts = list(m.transform_vertices(corners))
+                if e.dxf.get("column_count", 1) > 1 or e.dxf.get("row_count", 1) > 1 or len(e.attribs):
+                    ext = bbox.extents([e], cache=_cache)  # MINSERT·속성은 정확히 계산
+                    pts += [ext.extmin, ext.extmax] if ext.has_data else []
+                return self._points_box(pts)
+            ext = bbox.extents([e], cache=_cache)
+            return (ext.extmin.x, ext.extmin.y, ext.extmax.x, ext.extmax.y) if ext.has_data else nan
+        except Exception:
+            return nan
+
+    def select(self, box: BoundingBox2d) -> list:
+        b = self.boxes
+        with np.errstate(invalid="ignore"):
+            hit = (b[:, 2] >= box.extmin.x) & (b[:, 0] <= box.extmax.x) & (b[:, 3] >= box.extmin.y) & (b[:, 1] <= box.extmax.y)
+        unknown = np.isnan(b[:, 0])  # 경계를 모르는 객체는 그려 보고 잘리도록 둠
+        return [self.entities[i] for i in np.flatnonzero(hit | unknown)]
+
+
+_entity_index: EntityIndex | None = None
+
+
 def _record(page: dict, mono: bool, backend) -> tuple:
     """페이지 하나의 객체만 backend에 기록하고 (layout.Page, render_box)를 돌려줍니다."""
+    global _entity_index
     ctx = RenderContext(_doc)
     frontend = Frontend(ctx, backend, config=_config(mono))
     if "layout" in page:
@@ -430,12 +723,15 @@ def _record(page: dict, mono: bool, backend) -> tuple:
     box: BoundingBox2d = page["box"]
     pad = max(box.size.x, box.size.y) * 0.003
     render_box = BoundingBox2d([box.extmin - Vec2(pad, pad), box.extmax + Vec2(pad, pad)])
-
-    def inside(e) -> bool:
-        ext = bbox.extents([e], cache=_cache)
-        return ext.has_data and render_box.has_intersection(BoundingBox2d([ext.extmin, ext.extmax]))
-
-    frontend.draw_layout(_doc.modelspace(), filter_func=inside)
+    msp = _doc.modelspace()
+    if _entity_index is None:
+        _entity_index = EntityIndex(msp)
+    # Frontend.draw_layout과 같은 준비를 하고, 페이지 범위의 객체만 그림
+    ctx.set_current_layout(msp)
+    frontend.set_background(ctx.current_layout_properties.background_color)
+    frontend.parent_stack = []
+    frontend.draw_entities(_entity_index.select(render_box))
+    frontend.pipeline.finalize()
     return None, render_box
 
 

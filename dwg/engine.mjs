@@ -52,11 +52,12 @@ dwg_sheets.setup_fonts('/app/fonts', '${FONT}')
       let refInfo = null;
       if (reference && mode === 'model') {
         py.FS.writeFile('/work/ref.dxf', await readDxf(reference.bytes, reference.name, '기준 도곽'));
+        progress('기준 도곽을 읽는 중');
         try { refInfo = toJs(sheets.reference('/work/ref.dxf')); }
         finally { py.FS.unlink('/work/ref.dxf'); }
       }
       py.FS.writeFile('/work/in.dxf', await readDxf(bytes, name, '도면'));
-      progress('도곽을 찾는 중');
+      progress('도면 구조를 읽고 도곽을 찾는 중 (큰 도면은 1분 가까이 걸릴 수 있습니다)');
       try {
         const result = toJs(sheets.analyze('/work/in.dxf', mode, Boolean(refInfo)));
         return { ...result, warnings: [...(refInfo?.warnings || []), ...result.warnings], reference: refInfo };
