@@ -1040,7 +1040,8 @@ def _config(mono: bool, flatten: float = 0.01) -> Configuration:
         # 점선의 가장 짧은 대시. 용지에서 약 0.2 mm보다 짧으면 보이지 않고 선 조각만 많아짐
         min_dash_length=max(flatten * 4, 0.1),
         background_policy=BackgroundPolicy.WHITE,
-        color_policy=ColorPolicy.BLACK if mono else ColorPolicy.COLOR_SWAP_BW,
+        # COLOR_SWAP_BW는 흰 배경에서 이미 검은색이 된 ACI 7을 다시 흰색으로 바꾸므로 쓰지 않음
+        color_policy=ColorPolicy.BLACK if mono else ColorPolicy.COLOR,
         min_lineweight=1.2,  # 1/300 inch 단위 ≈ 0.1 mm
     )
 
@@ -1163,6 +1164,19 @@ _entity_index: EntityIndex | None = None
 _skipped = 0  # 그리지 못하고 건너뛴 객체 수 (render_pdf가 보고)
 
 
+# 흰 바탕을 덮는 용도로 흰색을 쓰는 채우기 객체는 그대로 둠
+FILLED = {"HATCH", "SOLID", "TRACE", "WIPEOUT", "MPOLYGON", "3DFACE"}
+
+
+def _darken_white(entity, properties) -> None:
+    """흰색·거의 흰색(검은 화면용 CAD 색) 선과 글자를 흰 용지에서 보이도록 검은색으로 바꿉니다."""
+    color = properties.color
+    if entity.dxftype() in FILLED or len(color) < 7:
+        return
+    if min(int(color[i:i + 2], 16) for i in (1, 3, 5)) >= 230:
+        properties.color = "#000000" + color[7:]
+
+
 def _record(page: dict, mono: bool, backend) -> tuple:
     """페이지 하나의 객체만 backend에 기록하고 (layout.Page, render_box)를 돌려줍니다."""
     global _entity_index
@@ -1170,6 +1184,8 @@ def _record(page: dict, mono: bool, backend) -> tuple:
     # 도곽 폭의 1/8000 (A3 출력 기준 약 0.05 mm) 정도면 눈으로 구분되지 않음
     flatten = max(page["width"], page["height"]) / 8000 if "box" in page else 0.01
     frontend = Frontend(ctx, backend, config=_config(mono, flatten))
+    if not mono:
+        frontend.push_property_override_function(_darken_white)
     if "layout" in page:
         lay = _doc.layouts.get(page["layout"])
         frontend.draw_layout(lay)
