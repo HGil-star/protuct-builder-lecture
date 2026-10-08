@@ -115,6 +115,25 @@
 
   $('drawing').addEventListener('change', () => { $('drawing-name').textContent = $('drawing').files[0]?.name || '선택한 파일 없음'; });
   $('reference').addEventListener('change', () => { $('reference-name').textContent = $('reference').files[0]?.name || '선택하지 않으면 자동 검출'; });
+  // 파일 카드에 끌어다 놓기: 놓은 파일을 그 카드의 file input에 넣고 change 이벤트로 이름 표시
+  for (const card of document.querySelectorAll('.file-card')) {
+    const input = card.querySelector('input[type=file]');
+    const active = e => [...e.dataTransfer.types].includes('Files') && !input.disabled && !$('upload-fields').disabled;
+    card.addEventListener('dragover', e => { if (!active(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; card.classList.add('dragging'); });
+    card.addEventListener('dragleave', e => { if (!card.contains(e.relatedTarget)) card.classList.remove('dragging'); });
+    card.addEventListener('drop', e => {
+      card.classList.remove('dragging');
+      if (!active(e)) return;
+      e.preventDefault();
+      const file = e.dataTransfer.files[0];
+      if (!file) return;
+      if (!/\.(dwg|dxf)$/i.test(file.name)) return message('DWG 또는 DXF 파일만 넣을 수 있습니다.', true);
+      const list = new DataTransfer(); list.items.add(file); input.files = list.files;
+      input.dispatchEvent(new Event('change')); message('');
+    });
+  }
+  // 카드 밖에 잘못 놓아도 브라우저가 파일을 열고 페이지를 떠나지 않게
+  for (const type of ['dragover', 'drop']) window.addEventListener(type, e => { if (!e.defaultPrevented && [...(e.dataTransfer?.types || [])].includes('Files')) e.preventDefault(); });
   $('space').addEventListener('change', () => { const layoutOption = $('paper').querySelector('[value="layout"]'); layoutOption.disabled = $('space').value !== 'layouts'; $('reference').disabled = $('space').value === 'layouts'; if (layoutOption.disabled && $('paper').value === 'layout') $('paper').value = 'A3'; });
   $('space').dispatchEvent(new Event('change'));
   $('upload-form').addEventListener('submit', async event => {

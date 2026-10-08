@@ -1200,7 +1200,8 @@ def _paper(page: dict, paper: str, lay) -> layout.Page:
     w, h = PAPERS.get(paper, PAPERS["A3"])
     if page["width"] < page["height"]:
         w, h = h, w
-    return layout.Page(w, h, layout.Units.mm)
+    # 일반 도면처럼 사방에 여백: 짧은 변의 4% (A3 12 mm, A4 8 mm) → 도곽은 용지의 약 92~94% 크기
+    return layout.Page(w, h, layout.Units.mm, margins=layout.Margins.all(min(w, h) * 0.04))
 
 
 def thumbnail(page_id: str, mono: bool = True) -> str:

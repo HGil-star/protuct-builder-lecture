@@ -19,8 +19,8 @@
       <form id="upload-form">
         <fieldset id="upload-fields">
           <div class="file-grid">
-            <label class="file-card" for="reference"><span class="file-icon" aria-hidden="true">▧</span><strong>기준 도곽 파일 <em class="optional">(선택)</em></strong><span>도곽 하나만 그려진 DWG/DXF. 이 도곽과 같은 양식만 페이지로 찾습니다.</span><input id="reference" name="reference" type="file" accept=".dwg,.dxf"><small id="reference-name">선택하지 않으면 자동 검출</small></label>
-            <label class="file-card" for="drawing"><span class="file-icon" aria-hidden="true">▤</span><strong>도면 파일</strong><span>도곽이 여러 개 배치된 DWG/DXF</span><input id="drawing" name="drawing" type="file" accept=".dwg,.dxf" required><small id="drawing-name">선택한 파일 없음</small></label>
+            <label class="file-card" for="reference"><span class="file-icon" aria-hidden="true">▧</span><strong>기준 도곽 파일 <em class="optional">(선택)</em></strong><span>도곽 하나만 그려진 DWG/DXF. 이 도곽과 같은 양식만 페이지로 찾습니다. 여기로 끌어다 놓아도 됩니다.</span><input id="reference" name="reference" type="file" accept=".dwg,.dxf"><small id="reference-name">선택하지 않으면 자동 검출</small></label>
+            <label class="file-card" for="drawing"><span class="file-icon" aria-hidden="true">▤</span><strong>도면 파일</strong><span>도곽이 여러 개 배치된 DWG/DXF. 여기로 끌어다 놓아도 됩니다.</span><input id="drawing" name="drawing" type="file" accept=".dwg,.dxf" required><small id="drawing-name">선택한 파일 없음</small></label>
           </div>
           <div class="settings-grid"><label for="space">페이지 찾기<select id="space" name="space"><option value="model">Model Space 도곽 검출</option><option value="layouts">기존 Layout별 출력</option></select></label><label for="paper">출력 용지<select id="paper" name="paper"><option value="A4">A4 · 210 × 297 mm</option><option value="A3" selected>A3 · 297 × 420 mm</option><option value="A2">A2 · 420 × 594 mm</option><option value="A1">A1 · 594 × 841 mm</option><option value="layout">기존 Layout 용지</option></select></label></div>
           <label class="check"><input id="mono" type="checkbox" checked> 흑백으로 출력</label>
