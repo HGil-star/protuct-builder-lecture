@@ -1191,7 +1191,8 @@ def _record(page: dict, mono: bool, backend) -> tuple:
         frontend.draw_layout(lay)
         return lay, None
     box: BoundingBox2d = page["box"]
-    pad = max(box.size.x, box.size.y) * 0.003
+    # 도곽 테두리 선 굵기가 잘리지 않을 만큼만 바깥을 포함 (PDF는 이 범위 밖을 잘라냄)
+    pad = max(box.size.x, box.size.y) * 0.0015
     render_box = BoundingBox2d([box.extmin - Vec2(pad, pad), box.extmax + Vec2(pad, pad)])
     msp = _doc.modelspace()
     if _entity_index is None:
@@ -1246,7 +1247,7 @@ def render_pdf(page_ids: Iterable[str], paper: str = "A3", mono: bool = True, pr
         page = _get(pid)
         be = PdfBackend()
         lay, box = _record(page, mono, be)
-        writer.add_page(*be.get_page(_paper(page, paper, lay), render_box=box))
+        writer.add_page(*be.get_page(_paper(page, paper, lay), render_box=box, clip_box=box))
     return writer.to_bytes()
 
 
@@ -1266,6 +1267,7 @@ class PdfRenderBackend(svg.SVGRenderBackend):
         self.view_box = svg.make_view_box(page, settings.output_coordinate_space)
         self.ops: list[str] = []
         self.background_color = "#ffffff"
+        self.clip: BoundingBox2d | None = None  # 출력 좌표의 도곽 범위. 밖으로 나간 선은 여백에 그리지 않음
 
     def set_background(self, color) -> None:
         self.background_color = color[:7]
@@ -1324,6 +1326,9 @@ class PdfRenderBackend(svg.SVGRenderBackend):
         s = w / self.view_box[0]
         head = [f"{self._rgb(self.background_color)} rg 0 0 {w:.2f} {h:.2f} re f",
                 f"{s:.8f} 0 0 {-s:.8f} 0 {h:.2f} cm 1 J 1 j"]
+        if self.clip is not None:
+            c = self.clip
+            head.append(f"{c.extmin.x:.0f} {c.extmin.y:.0f} {c.size.x:.0f} {c.size.y:.0f} re W n")
         return w, h, "\n".join(head + self.ops).encode("ascii")
 
 
@@ -1332,7 +1337,7 @@ class PdfBackend(svg.SVGBackend):
     def make_backend(page, settings):
         return PdfRenderBackend(page, settings)
 
-    def get_page(self, page: layout.Page, render_box=None) -> tuple[float, float, bytes]:
+    def get_page(self, page: layout.Page, render_box=None, clip_box=None) -> tuple[float, float, bytes]:
         # SVGBackend.get_xml_root_element의 배치 과정을 그대로 사용
         settings = layout.Settings(fit_page=True)
         player = self.player()
@@ -1341,8 +1346,12 @@ class PdfBackend(svg.SVGBackend):
         out = layout.Layout(render_box, flip_y=True)
         final = out.get_final_page(page, settings)
         settings = copy.copy(settings)
-        player.transform(out.get_placement_matrix(final, settings=settings, top_origin=True))
+        m = out.get_placement_matrix(final, settings=settings, top_origin=True)
+        player.transform(m)
         backend = PdfRenderBackend(final, settings)
+        if clip_box is not None:
+            backend.clip = BoundingBox2d(Vec2(p) for p in m.transform_vertices(
+                [clip_box.extmin, clip_box.extmax, Vec2(clip_box.extmin.x, clip_box.extmax.y), Vec2(clip_box.extmax.x, clip_box.extmin.y)]))
         player.replay(backend)
         return backend.content(final)
 
