@@ -114,6 +114,7 @@
   }
 
   $('drawing').addEventListener('change', () => { $('drawing-name').textContent = $('drawing').files[0]?.name || '선택한 파일 없음'; });
+  $('images').addEventListener('change', () => { const names = [...$('images').files].map(f => f.name); $('images-name').textContent = names.length ? `${names.length}개: ${names.join(', ')}` : '선택한 파일 없음'; });
   $('reference').addEventListener('change', () => { $('reference-name').textContent = $('reference').files[0]?.name || '선택하지 않으면 자동 검출'; });
   // 파일 카드에 끌어다 놓기: 놓은 파일을 그 카드의 file input에 넣고 change 이벤트로 이름 표시
   for (const card of document.querySelectorAll('.file-card')) {
@@ -125,10 +126,10 @@
       card.classList.remove('dragging');
       if (!active(e)) return;
       e.preventDefault();
-      const file = e.dataTransfer.files[0];
-      if (!file) return;
-      if (!/\.(dwg|dxf)$/i.test(file.name)) return message('DWG 또는 DXF 파일만 넣을 수 있습니다.', true);
-      const list = new DataTransfer(); list.items.add(file); input.files = list.files;
+      const exts = input.accept.split(',').map(a => a.trim().toLowerCase());
+      const files = [...e.dataTransfer.files].filter(f => exts.some(x => f.name.toLowerCase().endsWith(x))).slice(0, input.multiple ? undefined : 1);
+      if (!files.length) return message(`${exts.map(x => x.slice(1).toUpperCase()).join('·')} 파일만 넣을 수 있습니다.`, true);
+      const list = new DataTransfer(); for (const f of files) list.items.add(f); input.files = list.files;
       input.dispatchEvent(new Event('change')); message('');
     });
   }
@@ -148,7 +149,8 @@
     try {
       const buffer = await file.arrayBuffer(), refBuffer = refFile ? await refFile.arrayBuffer() : null;
       const reference = refBuffer ? { file: refBuffer, name: refFile.name } : null;
-      const result = await run('analyze', { file: buffer, name: file.name, mode, reference }, refBuffer ? [buffer, refBuffer] : [buffer]);
+      const images = await Promise.all([...$('images').files].map(async f => ({ file: await f.arrayBuffer(), name: f.name })));
+      const result = await run('analyze', { file: buffer, name: file.name, mode, reference, images }, [buffer, ...(refBuffer ? [refBuffer] : []), ...images.map(i => i.file)]);
       frames = result.pages; initialOrder = frames.map(f => f.id); selected = new Set(initialOrder);
       $('output-paper').value = paper; $('output-paper').querySelector('[value="layout"]').disabled = mode !== 'layouts';
       warnings(result.warnings); $('review').hidden = false;

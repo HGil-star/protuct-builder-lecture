@@ -7,6 +7,10 @@ from __future__ import annotations
 
 import bisect
 import copy
+import io
+import math
+import os
+import pathlib
 import re
 import statistics
 import unicodedata
@@ -19,6 +23,8 @@ from ezdxf import bbox, recover
 from ezdxf.addons import Importer
 from ezdxf.lldxf.const import DXFStructureError
 from ezdxf.addons.drawing import Frontend, RenderContext, layout, svg
+from ezdxf.addons.drawing.backend import ImageData
+from ezdxf.addons.drawing.type_hints import Color
 from ezdxf.addons.drawing.config import (
     BackgroundPolicy,
     ColorPolicy,
@@ -26,7 +32,9 @@ from ezdxf.addons.drawing.config import (
 )
 from ezdxf.fonts import fonts
 import numpy as np
-from ezdxf.math import BoundingBox2d, Vec2, Vec3
+from ezdxf.math import BoundingBox2d, Matrix44, Vec2, Vec3
+from ezdxf.npshapes import NumpyPoints2d
+import PIL.Image
 from ezdxf.path import Command
 
 FRAME_NAME = re.compile(r"도곽|표제|title|frame|border|sheet|form|dogak", re.I)
@@ -41,6 +49,8 @@ _ref_doc = None
 _ref_space = None
 _pages: list[dict] = []
 _cache = None
+_images: dict[str, str] = {}  # 올린 이미지 파일: 정규화한 파일 이름 → 경로
+_gray = False  # 흑백 출력이면 이미지도 회색조로
 
 
 # --------------------------------------------------------------------- 폰트
@@ -349,12 +359,33 @@ def _read(path: str):
     if utf8:
         try:
             doc = ezdxf.readfile(path, encoding="utf-8")
+            _adopt_image_defs(doc)
             doc.audit()
         except Exception:
             doc = None
     if doc is None:
         doc, _ = recover.readfile(path)
     return doc, fixes + _clean_names(doc)
+
+
+def _adopt_image_defs(doc) -> None:
+    """LibreDWG 출력에서는 이미지 사전이 루트 사전(ACAD_IMAGE_DICT)에 연결되지 않거나 아예 없어,
+    audit이 IMAGEDEF를 '소유자 없음'으로 지우고 연결 이미지가 사라집니다. 지우기 전에 다시 연결합니다."""
+    db, root = doc.entitydb, doc.rootdict
+    defs = list(doc.objects.query("IMAGEDEF"))
+    if not defs or "ACAD_IMAGE_DICT" in root:
+        return
+    owner = next((db.get(d.dxf.get("owner", "0")) for d in defs if db.get(d.dxf.get("owner", "0")) is not None), None)
+    if owner is not None and owner.dxftype() == "DICTIONARY":
+        root["ACAD_IMAGE_DICT"] = owner
+        owner.dxf.owner = root.dxf.handle
+    images = root.get_required_dict("ACAD_IMAGE_DICT")
+    for d in defs:
+        if db.get(d.dxf.get("owner", "0")) is images:
+            continue
+        key = f"{_image_key(d.dxf.get('filename', ''))}_{d.dxf.handle}"
+        images[key] = d
+        d.dxf.owner = images.dxf.handle
 
 
 def _clean_names(doc) -> int:
@@ -841,8 +872,33 @@ def _bind_reference_xrefs(doc) -> list[str]:
             importer.finalize()
         except Exception:  # 내용을 못 넣어도 도곽 위치는 찾을 수 있음
             pass
+        _copy_images(_ref_space, doc, layout)
         bound.append(layout.name)
     return bound
+
+
+def _copy_images(source, doc, target) -> None:
+    """Importer가 옮기지 못하는 연결 이미지·붙여넣은 그림을 다른 문서의 블록으로 복사합니다."""
+    defs: dict[str, object] = {}
+    for e in source:
+        try:
+            if e.dxftype() == "IMAGE":
+                d = e.image_def
+                if d is None or not d.is_alive:
+                    continue
+                name = d.dxf.get("filename", "")
+                if name not in defs:
+                    defs[name] = doc.add_image_def(filename=name, size_in_pixel=(d.dxf.image_size.x, d.dxf.image_size.y))
+                img = target.add_image(defs[name], insert=e.dxf.insert, size_in_units=(1, 1))
+                for key in ("u_pixel", "v_pixel", "image_size", "flags", "clipping", "brightness", "contrast", "fade", "clip_mode", "layer"):
+                    if e.dxf.hasattr(key):
+                        img.dxf.set(key, e.dxf.get(key))
+                if e.dxf.get("clipping", 0):
+                    img.set_boundary_path(e.boundary_path)
+            elif e.dxftype() == "OLE2FRAME":  # ezdxf는 OLE2FRAME을 복사하지 못함: 그릴 때 원본을 씀
+                _block_oles.setdefault(target.name, []).append(e)
+        except Exception:  # 이미지 하나 때문에 도곽 연결이 실패하지 않게
+            pass
 
 
 NUMBER_LABEL = re.compile(r"drawing\s*no|dwg\.?\s*no|도\s*면\s*번\s*호", re.I)
@@ -983,14 +1039,17 @@ def _contains(outer: BoundingBox2d, inner: BoundingBox2d, tol: float) -> bool:
 
 
 # ------------------------------------------------------------------- 분석
-def analyze(dxf_path: str, mode: str = "model", use_reference: bool = False) -> dict:
+def analyze(dxf_path: str, mode: str = "model", use_reference: bool = False, image_dir: str = "") -> dict:
     """도면을 읽고 페이지 후보 목록을 돌려줍니다."""
     global _doc, _pages, _cache, _entity_index
+    set_images(image_dir)
+    _ole_cache.clear()
+    _block_oles.clear()
     _doc, fixes = _read(dxf_path)
     _cache = bbox.Cache()
     _entity_index = None
     warnings: list[str] = _repair_warning(fixes, "도면 파일")
-    unsupported = {e.dxftype() for e in _doc.modelspace() if e.dxftype() in ("IMAGE", "OLE2FRAME", "3DSOLID", "REGION", "BODY")}
+    unsupported = {e.dxftype() for e in _doc.modelspace() if e.dxftype() in ("3DSOLID", "REGION", "BODY")}
     if unsupported:
         warnings.append("표시하지 못하는 객체가 있습니다: " + ", ".join(sorted(unsupported)))
     bound = _bind_reference_xrefs(_doc) if use_reference and mode != "layouts" else []
@@ -999,6 +1058,7 @@ def analyze(dxf_path: str, mode: str = "model", use_reference: bool = False) -> 
         listed = ", ".join(f"{b.name}({b.block.dxf.get('xref_path', '') or '경로 없음'})" for b in xrefs[:5]) + (" 외" if len(xrefs) > 5 else "")
         warnings.append(f"외부참조(XREF) 내용은 도면 파일에 없어 출력되지 않습니다: {listed}. "
                         "도곽이 외부참조라면 그 파일을 기준 도곽 파일로 올려 주세요.")
+    warnings += _image_warnings(_doc)
     if bound:
         count = sum(1 for e in _doc.modelspace().query("INSERT") if e.dxf.name in bound)
         warnings.append(f"외부참조 {', '.join(bound)}를 기준 도곽 파일로 연결했습니다 ({count}곳). 도곽 내용도 함께 출력합니다.")
@@ -1030,6 +1090,263 @@ def analyze(dxf_path: str, mode: str = "model", use_reference: bool = False) -> 
             warnings.append("기준 도곽과 같은 도곽을 찾지 못했습니다. 기준 파일과 도면의 도곽이 같은 양식인지 확인하세요." if use_reference
                             else "도곽을 찾지 못했습니다. 도곽이 닫힌 사각형(폴리라인)이나 블록으로 그려져 있는지 확인하세요.")
     return {"pages": [{k: v for k, v in p.items() if k != "box"} for p in _pages], "warnings": warnings}
+
+
+# ------------------------------------------------------------------- 이미지
+# 연결 이미지(IMAGE)는 도면에 경로만 있으므로 사용자가 올린 파일을 이름으로 찾아 쓰고,
+# 붙여넣은 그림(OLE2FRAME)은 도면 안의 OLE 데이터에서 비트맵을 꺼내 그립니다.
+def _image_key(path: str) -> str:
+    """'..\\로고\\김제시.JPG' → '김제시.jpg'"""
+    return unicodedata.normalize("NFC", path.replace("\\", "/").rsplit("/", 1)[-1]).strip().lower()
+
+
+def set_images(folder: str) -> None:
+    """올린 이미지 파일이 있는 폴더를 등록합니다."""
+    global _images
+    _images = {}
+    if folder and os.path.isdir(folder):
+        for name in os.listdir(folder):
+            _images[_image_key(name)] = os.path.join(folder, name)
+
+
+def _image_file(filename: str) -> str | None:
+    key = _image_key(filename or "")
+    if key in _images:
+        return _images[key]
+    stem = key.rsplit(".", 1)[0]  # 확장자만 다른 파일 (logo.jpg ↔ logo.png)
+    return next((p for k, p in _images.items() if k.rsplit(".", 1)[0] == stem), None) if stem else None
+
+
+def _image_warnings(doc) -> list[str]:
+    missing, ole_failed = set(), 0
+    for e in doc.entitydb.values():
+        if not e.is_alive:
+            continue
+        t = e.dxftype()
+        if t == "IMAGE":
+            d = e.image_def
+            name = d.dxf.get("filename", "") if d is not None and d.is_alive else ""
+            if name and _image_file(name) is None:
+                missing.add(name.replace("\\", "/").rsplit("/", 1)[-1])
+        elif t == "OLE2FRAME" and _ole_image(e) is None:
+            ole_failed += 1
+    out = []
+    if missing:
+        listed = ", ".join(sorted(missing)[:8]) + (" 외" if len(missing) > 8 else "")
+        out.append(f"도면에 연결된 이미지 파일이 없어 출력하지 않습니다: {listed}. 이미지 파일 칸에 같은 이름의 파일을 올려 주세요.")
+    if ole_failed:
+        out.append(f"붙여넣은 그림 {ole_failed}개는 읽을 수 없는 형식(예: 메타파일)이라 출력하지 않습니다. "
+                   "CAD에서 비트맵으로 붙여넣거나 이미지 파일로 연결해 주세요.")
+    return out
+
+
+def _cfb_streams(data: bytes) -> dict[str, bytes]:
+    """OLE 복합 문서(Compound File)의 스트림을 읽습니다. 붙여넣은 그림의 데이터 형식."""
+    if data[:8] != b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
+        return {}
+    u16 = lambda o: int.from_bytes(data[o:o + 2], "little")
+    u32 = lambda o: int.from_bytes(data[o:o + 4], "little")
+    size, mini_size = 1 << u16(30), 1 << u16(32)
+    sector = lambda i: data[(i + 1) * size:(i + 2) * size]
+    difat = [u32(76 + 4 * i) for i in range(109)]
+    nxt, guard = u32(68), 0
+    while nxt < 0xFFFFFFFA and guard < 1000:  # 109개를 넘는 FAT 섹터 목록
+        sec = sector(nxt)
+        difat += [int.from_bytes(sec[i:i + 4], "little") for i in range(0, size - 4, 4)]
+        nxt, guard = int.from_bytes(sec[-4:], "little"), guard + 1
+    fat_bytes = b"".join(sector(i) for i in difat[:u32(44)] if i < 0xFFFFFFFA)
+    fat = np.frombuffer(fat_bytes[:len(fat_bytes) // 4 * 4], "<u4")
+
+    def chain(start: int, table, read) -> bytes:
+        out, seen = [], set()
+        while start < 0xFFFFFFFA and start < len(table) and start not in seen:
+            seen.add(start)
+            out.append(read(start))
+            start = int(table[start])
+        return b"".join(out)
+
+    directory = chain(u32(48), fat, sector)
+    entries = [directory[i:i + 128] for i in range(0, len(directory) - 127, 128)]
+    if not entries:
+        return {}
+    root = entries[0]
+    mini_stream = chain(int.from_bytes(root[116:120], "little"), fat, sector)
+    mini_fat_bytes = chain(u32(60), fat, sector) if u32(64) else b""
+    mini_fat = np.frombuffer(mini_fat_bytes[:len(mini_fat_bytes) // 4 * 4], "<u4")
+    mini = lambda i: mini_stream[i * mini_size:(i + 1) * mini_size]
+    streams = {}
+    for e in entries[1:]:
+        if e[66] != 2:  # 스트림만
+            continue
+        name = e[:max(int.from_bytes(e[64:66], "little") - 2, 0)].decode("utf-16-le", "replace")
+        start, length = int.from_bytes(e[116:120], "little"), int.from_bytes(e[120:124], "little")
+        body = chain(start, mini_fat, mini) if length < u32(56) else chain(start, fat, sector)
+        streams[name] = body[:length]
+    return streams
+
+
+def _dib_to_bmp(dib: bytes) -> bytes:
+    header = int.from_bytes(dib[:4], "little")
+    bits, compression, used = (int.from_bytes(dib[14:16], "little"), int.from_bytes(dib[16:20], "little"),
+                               int.from_bytes(dib[32:36], "little") if header >= 36 else 0)
+    palette = (used or (1 << bits if bits <= 8 else 0)) * 4 + (12 if compression == 3 and header == 40 else 0)
+    offset = 14 + header + palette
+    return b"BM" + (14 + len(dib)).to_bytes(4, "little") + b"\0\0\0\0" + offset.to_bytes(4, "little") + dib
+
+
+IMAGE_MAGIC = (b"\x89PNG", b"\xff\xd8\xff", b"GIF8", b"BM")
+
+
+def _open_image(blob: bytes):
+    try:
+        img = PIL.Image.open(io.BytesIO(blob))
+        img.load()
+        return img
+    except Exception:
+        return None
+
+
+def _ole_picture(data: bytes):
+    """OLE 데이터에서 비트맵 그림을 찾습니다 (그림판 비트맵·패키지 이미지·DIB 미리보기)."""
+    start = data.find(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1")
+    if start < 0:
+        return None
+    try:
+        streams = _cfb_streams(data[start:])
+    except Exception:
+        return None
+    # 실제 내용(Ole10Native, CONTENTS 등)을 먼저, 미리보기(OlePres)는 나중에
+    for name in sorted(streams, key=lambda n: "OlePres" in n):
+        blob = streams[name]
+        if "OlePres" in name:
+            # 형식 -1, 8(CF_DIB)이고 대상 장치 정보가 없으면 40바이트 머리 뒤가 DIB
+            if blob[:4] == b"\xff\xff\xff\xff" and blob[4:8] == (8).to_bytes(4, "little") and blob[8:12] == (4).to_bytes(4, "little"):
+                img = _open_image(_dib_to_bmp(blob[40:40 + int.from_bytes(blob[36:40], "little")]))
+                if img is not None:
+                    return img
+            continue
+        for magic in IMAGE_MAGIC:  # 그림판은 앞 4바이트가 길이, 패키지는 파일 이름 뒤에 파일 내용
+            at = blob.find(magic, 0, 4096)
+            if at >= 0:
+                img = _open_image(blob[at:])
+                if img is not None:
+                    return img
+    return None
+
+
+_ole_cache: dict[str, object] = {}
+
+
+def _ole_image(entity):
+    key = f"{id(entity.doc)}:{entity.dxf.handle}"
+    if key not in _ole_cache:
+        try:
+            _ole_cache[key] = _ole_picture(entity.binary_data())
+        except Exception:
+            _ole_cache[key] = None
+    return _ole_cache[key]
+
+
+def _raster_frame(doc) -> bool:
+    """이미지 테두리를 출력할지 (RASTERVARIABLES의 IMAGEFRAME: 0 숨김, 1 표시·출력, 2 표시만)."""
+    for v in doc.objects.query("RASTERVARIABLES"):
+        return v.dxf.get("frame", 1) == 1
+    return True
+
+
+class _Frontend(Frontend):
+    """연결 이미지는 올린 파일로, 붙여넣은 그림은 OLE 비트맵으로 그립니다."""
+
+    def draw_image_entity(self, entity, properties) -> None:
+        d = entity.image_def
+        path = _image_file(d.dxf.get("filename", "")) if d is not None and d.is_alive else None
+        if path is None:
+            return  # 파일이 없으면 경로 글자 대신 아무것도 그리지 않음 (경고로 안내)
+        if not _raster_frame(entity.doc):
+            properties.color = properties.color[:7] + "00"  # 테두리 선은 투명하게
+        name = d.dxf.filename
+        d.dxf.filename = path  # ezdxf는 절대 경로가 있으면 그대로 엶
+        try:
+            super().draw_image_entity(entity, properties)
+        finally:
+            d.dxf.filename = name
+
+    def draw_ole2frame_entity(self, entity, properties, matrix: Matrix44 | None = None) -> None:
+        img = _ole_image(entity)
+        corners = _ole_corners(entity)
+        if img is None or corners is None:
+            return
+        if matrix is not None:  # 블록 안의 그림: 삽입 위치로 옮김
+            corners = list(matrix.transform_vertices(corners))
+        upper_left, upper_right, _, lower_left = corners
+        w, h = img.size
+        # IMAGE와 같은 방식: 픽셀 (x, y) → 왼쪽 아래 + x·u + y·v
+        m = Matrix44()
+        m.set_row(0, Vec3((upper_right - upper_left) / w))
+        m.set_row(1, Vec3((upper_left - lower_left) / h))
+        m.set_row(3, Vec3(lower_left))
+        boundary = NumpyPoints2d(Vec2.list([(0, 0), (w, 0), (w, h), (0, h), (0, 0)]))
+        self.pipeline.draw_image(ImageData(np.array(img.convert("RGBA")), m, boundary), properties)
+
+    def draw_composite_entity(self, entity, properties) -> None:
+        super().draw_composite_entity(entity, properties)
+        # ezdxf는 OLE2FRAME을 복사하지 못해 블록을 펼칠 때 빠뜨리므로 따로 그림
+        if entity.dxftype() != "INSERT":
+            return
+        name = entity.dxf.name
+        oles = _block_oles.get(name)
+        if oles is None:
+            block = entity.doc.blocks.get(name) if entity.doc is not None else None
+            oles = _block_oles[name] = [e for e in block if e.dxftype() == "OLE2FRAME"] if block is not None else []
+        if oles:
+            m = entity.matrix44()  # 블록 기준점 포함
+            for ole in oles:
+                self.draw_ole2frame_entity(ole, properties, m)
+
+
+_block_oles: dict[str, list] = {}  # 블록 이름 → 블록 안의 붙여넣은 그림 (외부참조로 연결한 기준 도곽 포함)
+
+
+def _ole_corners(entity) -> list[Vec3] | None:
+    """붙여넣은 그림의 네 꼭짓점(왼쪽 위, 오른쪽 위, 오른쪽 아래, 왼쪽 아래).
+
+    DXF의 10/11 좌표는 실제 위치와 다른 경우가 있어, OLE 데이터 머리(2바이트 뒤 double 12개)를 먼저 씁니다."""
+    import struct
+    data = entity.binary_data()
+    if len(data) >= 98:
+        v = struct.unpack("<12d", data[2:98])
+        pts = [Vec3(v[i:i + 3]) for i in range(0, 12, 3)]
+        if all(math.isfinite(c) for p in pts for c in p) and (pts[1] - pts[0]).magnitude > 0 and (pts[0] - pts[3]).magnitude > 0:
+            return pts
+    box = entity.bbox()
+    if not box.has_data:
+        return None
+    (x0, y0, _), (x1, y1, _) = box.extmin, box.extmax
+    return [Vec3(x0, y1), Vec3(x1, y1), Vec3(x1, y0), Vec3(x0, y0)]
+
+
+def _image_pixels(image_data: ImageData, max_side: int = 0) -> PIL.Image.Image:
+    img = PIL.Image.fromarray(image_data.image, mode="RGBA")
+    if max_side and max(img.size) > max_side:
+        img.thumbnail((max_side, max_side))
+    if _gray:
+        alpha = img.getchannel("A")
+        img = img.convert("L").convert("RGBA")
+        img.putalpha(alpha)
+    return img
+
+
+def _image_matrix(image_data: ImageData, w: int, h: int) -> Matrix44:
+    """이미지 단위 정사각형(PDF 방식: 아래쪽 v=0)을 출력 좌표로 옮기는 행렬.
+
+    ezdxf ImageData는 0행이 위쪽인데, 변환 행렬의 판별식이 음수면(일반적인 경우) 0행이
+    아래쪽으로 가므로 ezdxf pymupdf 백엔드처럼 위아래를 맞춥니다."""
+    t = image_data.transform
+    ih, iw = image_data.image.shape[:2]
+    scale = Matrix44.scale(iw, ih, 1)
+    if t.determinant() > 0:
+        scale = Matrix44.scale(iw, -ih, 1) @ Matrix44.translate(0, ih, 0)
+    return scale @ t
 
 
 # ----------------------------------------------------------------- 렌더링
@@ -1138,6 +1455,9 @@ class EntityIndex:
                 return c[0] - r, c[1] - r, c[0] + r, c[1] + r
             if t in ("SOLID", "TRACE", "3DFACE"):
                 return self._points_box([e.dxf.get(f"vtx{i}") for i in range(4) if e.dxf.hasattr(f"vtx{i}")])
+            if t == "OLE2FRAME":
+                pts = _ole_corners(e)
+                return self._points_box(pts) if pts else nan
             if t == "POINT":
                 p = e.dxf.location
                 return p[0], p[1], p[0], p[1]
@@ -1179,11 +1499,13 @@ def _darken_white(entity, properties) -> None:
 
 def _record(page: dict, mono: bool, backend) -> tuple:
     """페이지 하나의 객체만 backend에 기록하고 (layout.Page, render_box)를 돌려줍니다."""
-    global _entity_index
+    global _entity_index, _gray
+    _gray = mono
     ctx = RenderContext(_doc)
+    ctx.document_dir = pathlib.Path("/")  # 이미지는 _Frontend가 절대 경로로 바꿔 엶
     # 도곽 폭의 1/8000 (A3 출력 기준 약 0.05 mm) 정도면 눈으로 구분되지 않음
     flatten = max(page["width"], page["height"]) / 8000 if "box" in page else 0.01
-    frontend = Frontend(ctx, backend, config=_config(mono, flatten))
+    frontend = _Frontend(ctx, backend, config=_config(mono, flatten))
     if not mono:
         frontend.push_property_override_function(_darken_white)
     if "layout" in page:
@@ -1223,7 +1545,7 @@ def _paper(page: dict, paper: str, lay) -> layout.Page:
 
 def thumbnail(page_id: str, mono: bool = True) -> str:
     page = _get(page_id)
-    be = svg.SVGBackend()
+    be = ThumbBackend()
     lay, box = _record(page, mono, be)
     ratio = page["width"] / page["height"] if page["height"] else 1.414
     w = 240 if ratio >= 1 else 240 * ratio
@@ -1259,6 +1581,29 @@ def _get(page_id: str) -> dict:
 
 
 # ---------------------------------------------------------------- PDF 출력
+class ThumbRenderBackend(svg.SVGRenderBackend):
+    """ezdxf SVG 백엔드에 이미지 그리기를 더합니다 (미리보기용으로 작게)."""
+
+    def draw_image(self, image_data: ImageData, properties) -> None:
+        import base64
+        img = _image_pixels(image_data, max_side=400)
+        buf = io.BytesIO()
+        img.save(buf, "PNG")
+        # SVG 이미지는 위쪽이 y=0이므로 단위 정사각형을 뒤집은 뒤 PDF와 같은 행렬 적용
+        m = Matrix44.scale(1, -1, 1) @ Matrix44.translate(0, 1, 0) @ _image_matrix(image_data, *img.size)
+        ET = svg.ET
+        ET.SubElement(self.entities, "image", {
+            "href": "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii"),
+            "width": "1", "height": "1", "preserveAspectRatio": "none",
+            "transform": f"matrix({m[0, 0]:.4f} {m[0, 1]:.4f} {m[1, 0]:.4f} {m[1, 1]:.4f} {m[3, 0]:.2f} {m[3, 1]:.2f})"})
+
+
+class ThumbBackend(svg.SVGBackend):
+    @staticmethod
+    def make_backend(page, settings):
+        return ThumbRenderBackend(page, settings)
+
+
 class PdfRenderBackend(svg.SVGRenderBackend):
     """ezdxf SVG 백엔드와 같은 좌표계로 PDF 콘텐츠 스트림을 만듭니다."""
 
@@ -1268,6 +1613,7 @@ class PdfRenderBackend(svg.SVGRenderBackend):
         self.ops: list[str] = []
         self.background_color = "#ffffff"
         self.clip: BoundingBox2d | None = None  # 출력 좌표의 도곽 범위. 밖으로 나간 선은 여백에 그리지 않음
+        self.images: list[PIL.Image.Image] = []  # 콘텐츠에서 /Im0, /Im1 … 로 부르는 이미지
 
     def set_background(self, color) -> None:
         self.background_color = color[:7]
@@ -1283,6 +1629,12 @@ class PdfRenderBackend(svg.SVGRenderBackend):
     def add_filling(self, d: str, properties) -> None:
         if d and properties.color[7:9] != "00":
             self.ops.append(f"{self._rgb(properties.color)} rg\n{d} f*")
+
+    def draw_image(self, image_data: ImageData, properties) -> None:
+        img = _image_pixels(image_data)
+        m = _image_matrix(image_data, *img.size)
+        self.ops.append(f"q {m[0, 0]:.4f} {m[0, 1]:.4f} {m[1, 0]:.4f} {m[1, 1]:.4f} {m[3, 0]:.2f} {m[3, 1]:.2f} cm /Im{len(self.images)} Do Q")
+        self.images.append(img)
 
     @staticmethod
     def make_polyline_str(points, close=False) -> str:
@@ -1320,7 +1672,7 @@ class PdfRenderBackend(svg.SVGRenderBackend):
             d.append("h")
         return " ".join(d)
 
-    def content(self, page: layout.Page) -> tuple[float, float, bytes]:
+    def content(self, page: layout.Page) -> tuple[float, float, bytes, list]:
         pt = 72 / 25.4
         w, h = page.width_in_mm * pt, page.height_in_mm * pt
         s = w / self.view_box[0]
@@ -1329,7 +1681,7 @@ class PdfRenderBackend(svg.SVGRenderBackend):
         if self.clip is not None:
             c = self.clip
             head.append(f"{c.extmin.x:.0f} {c.extmin.y:.0f} {c.size.x:.0f} {c.size.y:.0f} re W n")
-        return w, h, "\n".join(head + self.ops).encode("ascii")
+        return w, h, "\n".join(head + self.ops).encode("ascii"), self.images
 
 
 class PdfBackend(svg.SVGBackend):
@@ -1337,7 +1689,7 @@ class PdfBackend(svg.SVGBackend):
     def make_backend(page, settings):
         return PdfRenderBackend(page, settings)
 
-    def get_page(self, page: layout.Page, render_box=None, clip_box=None) -> tuple[float, float, bytes]:
+    def get_page(self, page: layout.Page, render_box=None, clip_box=None) -> tuple[float, float, bytes, list]:
         # SVGBackend.get_xml_root_element의 배치 과정을 그대로 사용
         settings = layout.Settings(fit_page=True)
         player = self.player()
@@ -1360,18 +1712,42 @@ class PdfWriter:
     """여러 페이지 벡터 PDF를 만드는 최소 구현입니다."""
 
     def __init__(self) -> None:
-        self.pages: list[tuple[float, float, bytes]] = []
+        self.pages: list[tuple[float, float, bytes, list]] = []
 
-    def add_page(self, width: float, height: float, content: bytes) -> None:
-        self.pages.append((width, height, content))
+    def add_page(self, width: float, height: float, content: bytes, images: list = ()) -> None:
+        self.pages.append((width, height, content, list(images)))
+
+    @staticmethod
+    def _stream(data: bytes, extra: bytes = b"") -> bytes:
+        data = zlib.compress(data, 6)
+        return b"<< %s/Length %d /Filter /FlateDecode >>\nstream\n" % (extra, len(data)) + data + b"\nendstream"
 
     def to_bytes(self) -> bytes:
         objs: list[bytes] = [b"", b""]  # 1: Catalog, 2: Pages
         kids = []
-        for w, h, content in self.pages:
-            data = zlib.compress(content, 6)
-            objs.append(b"<< /Length %d /Filter /FlateDecode >>\nstream\n" % len(data) + data + b"\nendstream")
-            objs.append(b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %.2f %.2f] /Contents %d 0 R /Resources << >> >>" % (w, h, len(objs)))
+        shared: dict[tuple, int] = {}  # 같은 이미지(예: 모든 페이지의 표제란 로고)는 한 번만 넣음
+
+        def image_obj(img: PIL.Image.Image) -> int:
+            gray = all(img.getchannel(c).tobytes() == img.getchannel("R").tobytes() for c in "GB")
+            key = (img.size, zlib.crc32(img.tobytes()))
+            if key in shared:
+                return shared[key]
+            alpha = img.getchannel("A")
+            smask = b""
+            if alpha.getextrema()[0] < 255:
+                objs.append(self._stream(alpha.tobytes(), b"/Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceGray /BitsPerComponent 8 " % img.size))
+                smask = b"/SMask %d 0 R " % len(objs)
+            pixels = img.convert("L" if gray else "RGB")
+            objs.append(self._stream(pixels.tobytes(), b"/Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /%s /BitsPerComponent 8 %s"
+                                     % (img.size[0], img.size[1], b"DeviceGray" if gray else b"DeviceRGB", smask)))
+            shared[key] = len(objs)
+            return len(objs)
+
+        for w, h, content, images in self.pages:
+            refs = b" ".join(b"/Im%d %d 0 R" % (i, image_obj(img)) for i, img in enumerate(images))
+            objs.append(self._stream(content))
+            resources = b"<< /XObject << %s >> >>" % refs if images else b"<< >>"
+            objs.append(b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %.2f %.2f] /Contents %d 0 R /Resources %s >>" % (w, h, len(objs), resources))
             kids.append(len(objs))
         objs[0] = b"<< /Type /Catalog /Pages 2 0 R >>"
         objs[1] = b"<< /Type /Pages /Kids [%s] /Count %d >>" % (b" ".join(b"%d 0 R" % k for k in kids), len(kids))

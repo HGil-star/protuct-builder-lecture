@@ -43,7 +43,7 @@ dwg_sheets.setup_fonts('/app/fonts', '${FONT}')
   const toJs = value => { const out = value.toJs({ dict_converter: Object.fromEntries }); value.destroy?.(); return out; };
 
   return {
-    async analyze(bytes, name, mode, reference = null) {
+    async analyze(bytes, name, mode, reference = null, images = []) {
       const readDxf = async (data, fileName, label) => {
         if (!/\.dwg$/i.test(fileName)) return data;
         progress(`${label} DWG를 읽는 중`);
@@ -56,10 +56,14 @@ dwg_sheets.setup_fonts('/app/fonts', '${FONT}')
         try { refInfo = toJs(sheets.reference('/work/ref.dxf', reference.name)); }
         finally { py.FS.unlink('/work/ref.dxf'); }
       }
+      // 연결 이미지 파일: 페이지를 그릴 때마다 읽으므로 다음 분석 전까지 둠
+      py.FS.mkdirTree('/work/images');
+      for (const old of py.FS.readdir('/work/images')) if (old !== '.' && old !== '..') py.FS.unlink(`/work/images/${old}`);
+      for (const image of images) py.FS.writeFile(`/work/images/${image.name.replace(/[\\/]/g, '_')}`, image.bytes);
       py.FS.writeFile('/work/in.dxf', await readDxf(bytes, name, '도면'));
       progress('도면 구조를 읽고 도곽을 찾는 중 (큰 도면은 1분 가까이 걸릴 수 있습니다)');
       try {
-        const result = toJs(sheets.analyze('/work/in.dxf', mode, Boolean(refInfo)));
+        const result = toJs(sheets.analyze('/work/in.dxf', mode, Boolean(refInfo), '/work/images'));
         return { ...result, warnings: [...(refInfo?.warnings || []), ...result.warnings], reference: refInfo };
       }
       finally { py.FS.unlink('/work/in.dxf'); }

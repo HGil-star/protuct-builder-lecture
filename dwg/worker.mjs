@@ -28,7 +28,7 @@ self.onmessage = async ({ data }) => {
     await ready;
     let result, transfer = [];
     if (type === 'init') result = true;
-    else if (type === 'analyze') result = await engine.analyze(new Uint8Array(data.file), data.name, data.mode, data.reference ? { bytes: new Uint8Array(data.reference.file), name: data.reference.name } : null);
+    else if (type === 'analyze') result = await engine.analyze(new Uint8Array(data.file), data.name, data.mode, data.reference ? { bytes: new Uint8Array(data.reference.file), name: data.reference.name } : null, (data.images || []).map(i => ({ bytes: new Uint8Array(i.file), name: i.name })));
     else if (type === 'thumbnail') result = engine.thumbnail(data.page, data.mono);
     else if (type === 'pdf') { result = engine.pdf(data.pages, data.paper, data.mono); transfer = [result.bytes.buffer]; }
     postMessage({ id, ok: true, result }, transfer);

@@ -116,3 +116,18 @@ test('모든 레이어가 꺼진 것으로 변환된 도면은 레이어를 다�
   const pdf = Buffer.from(engine.pdf(['P1'], 'A3', true).bytes);
   assert.ok(pdf.length > 3000, `빈 페이지가 아니어야 함 (${pdf.length} bytes)`);
 });
+
+test('연결 이미지는 올린 파일을 이름으로 찾아 PDF에 넣는다', async () => {
+  const drawing = await fixture('linked-image.dxf');
+  const without = await engine.analyze(drawing, 'linked-image.dxf', 'model');
+  assert.ok(without.warnings.some(w => w.includes('Logo.PNG') && w.includes('이미지 파일 칸')));
+  assert.doesNotMatch(Buffer.from(engine.pdf(['P1'], 'A4', false).bytes).toString('latin1'), /\/Subtype \/Image/);
+
+  const images = [{ bytes: await fixture('logo.png'), name: 'logo.png' }]; // 대소문자·경로가 달라도 같은 파일
+  const result = await engine.analyze(drawing, 'linked-image.dxf', 'model', null, images);
+  assert.ok(!result.warnings.some(w => w.includes('Logo.PNG')));
+  const pdf = Buffer.from(engine.pdf(['P1'], 'A4', false).bytes).toString('latin1');
+  assert.match(pdf, /\/Subtype \/Image \/Width 40 \/Height 20 \/ColorSpace \/DeviceRGB/);
+  assert.match(pdf, /\/XObject << \/Im0 \d+ 0 R >>/);
+  assert.match(engine.thumbnail('P1', false), /<image [^>]*href="data:image\/png;base64,/);
+});

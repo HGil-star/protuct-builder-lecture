@@ -21,6 +21,7 @@
           <div class="file-grid">
             <label class="file-card" for="reference"><span class="file-icon" aria-hidden="true">▧</span><strong>기준 도곽 파일 <em class="optional">(선택)</em></strong><span>도곽 하나만 그려진 DWG/DXF. 이 도곽과 같은 양식만 페이지로 찾습니다. 여기로 끌어다 놓아도 됩니다.</span><input id="reference" name="reference" type="file" accept=".dwg,.dxf"><small id="reference-name">선택하지 않으면 자동 검출</small></label>
             <label class="file-card" for="drawing"><span class="file-icon" aria-hidden="true">▤</span><strong>도면 파일</strong><span>도곽이 여러 개 배치된 DWG/DXF. 여기로 끌어다 놓아도 됩니다.</span><input id="drawing" name="drawing" type="file" accept=".dwg,.dxf" required><small id="drawing-name">선택한 파일 없음</small></label>
+            <label class="file-card wide" for="images"><span class="file-icon" aria-hidden="true">▣</span><strong>이미지 파일 <em class="optional">(선택)</em></strong><span>도면에 연결된 로고·그림 파일(JPG·PNG·BMP·TIF). 도면에 적힌 파일 이름과 같은 것만 씁니다. 여러 개를 함께 선택하거나 끌어다 놓을 수 있습니다. 붙여넣은 그림은 도면 안에 있어 올리지 않아도 됩니다.</span><input id="images" name="images" type="file" accept=".jpg,.jpeg,.png,.bmp,.gif,.tif,.tiff" multiple><small id="images-name">선택한 파일 없음</small></label>
           </div>
           <div class="settings-grid"><label for="space">페이지 찾기<select id="space" name="space"><option value="model">Model Space 도곽 검출</option><option value="layouts">기존 Layout별 출력</option></select></label><label for="paper">출력 용지<select id="paper" name="paper"><option value="A4">A4 · 210 × 297 mm</option><option value="A3" selected>A3 · 297 × 420 mm</option><option value="A2">A2 · 420 × 594 mm</option><option value="A1">A1 · 594 × 841 mm</option><option value="layout">기존 Layout 용지</option></select></label></div>
           <label class="check"><input id="mono" type="checkbox" checked> 흑백으로 출력</label>
@@ -39,7 +40,7 @@
       <div class="actions"><button id="generate" type="button" class="primary">PDF 만들기</button></div>
     </section>
     <section id="download-panel" class="panel success-panel" hidden><span class="success-icon" aria-hidden="true">✓</span><h2>PDF가 준비되었습니다</h2><p id="download-info"></p><button id="download" type="button" class="primary">PDF 다운로드</button></section>
-    <p class="privacy">도면은 이 브라우저 안에서만 변환되며 서버로 전송되지 않습니다. 외부참조(XREF)·이미지·SHX 글꼴 모양은 포함되지 않으며, SHX 글자는 나눔고딕으로 표시합니다. <a href="dwg/NOTICE.md">오픈소스 고지</a></p>
+    <p class="privacy">도면은 이 브라우저 안에서만 변환되며 서버로 전송되지 않습니다. 기준 도곽으로 올리지 않은 외부참조(XREF)와 이미지 파일 칸에 올리지 않은 연결 이미지는 포함되지 않으며, SHX 글자는 나눔고딕으로 표시합니다. <a href="dwg/NOTICE.md">오픈소스 고지</a></p>
   </main>
   <dialog id="preview-dialog"><div class="dialog-heading"><h2 id="preview-title">페이지 미리보기</h2><button id="close-preview" type="button">닫기</button></div><p id="preview-status" role="status"></p><iframe id="preview-frame" title="도곽 PDF 미리보기"></iframe><a id="preview-link" target="_blank" rel="noopener">새 창에서 PDF 열기</a></dialog>
 </body>
