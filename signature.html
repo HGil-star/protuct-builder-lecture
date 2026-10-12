@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>서명·도장 만들기 – 전자 서명과 도장 이미지</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <!-- 서명·도장 샘플용 한글 글꼴 (실제로 쓰는 글자만 내려받음) -->
+    <link href="https://fonts.googleapis.com/css2?family=Nanum+Pen+Script&family=Nanum+Brush+Script&family=Gaegu:wght@400;700&family=Hi+Melody&family=Gamja+Flower&family=East+Sea+Dokdo&family=Dokdo&family=Yeon+Sung&family=Song+Myung&family=Stylish&family=Poor+Story&family=Single+Day&family=Cute+Font&family=Kirang+Haerang&family=Gugi&family=Black+Han+Sans&family=Do+Hyeon&family=Jua&family=Sunflower:wght@700&family=Nanum+Myeongjo:wght@800&family=Gowun+Batang:wght@700&family=Gowun+Dodum&family=Dongle:wght@700&family=Hahmlet:wght@700&family=Noto+Serif+KR:wght@900&family=Diphylleia&family=Orbit&family=Moirai+One&family=Bagel+Fat+One&family=Gasoek+One&family=Grandiflora+One&family=Black+And+White+Picture&family=Gothic+A1:wght@900&family=Nanum+Gothic:wght@800&display=block" rel="stylesheet">
+    <!-- 영문 필기체 글꼴 -->
+    <link href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Dancing+Script:wght@600&family=Allura&family=Sacramento&family=Mr+Dafoe&family=Alex+Brush&family=Herr+Von+Muellerhoff&family=Monsieur+La+Doulaise&family=Mrs+Saint+Delafield&family=Homemade+Apple&family=Caveat:wght@600&family=Satisfy&family=Kaushan+Script&family=Parisienne&family=Cedarville+Cursive&family=La+Belle+Aurore&family=Rouge+Script&family=Yellowtail&family=Arizonia&family=Marck+Script&family=Zeyada&family=Pinyon+Script&family=Italianno&family=Meddon&family=Reenie+Beanie&family=Nothing+You+Could+Do&family=Qwigley&family=Ms+Madi&family=Birthstone&family=Corinthia&family=Ballet&family=WindSong&family=Updock&family=Petit+Formal+Script&family=Pacifico&family=Cookie&family=Damion&family=Euphoria+Script&family=Bilbo+Swash+Caps&family=Whisper&display=block" rel="stylesheet">
+    <link rel="stylesheet" href="common.css">
+    <link rel="stylesheet" href="ui.css">
+    <link rel="stylesheet" href="signature.css">
+</head>
+
+<body>
+
+    <header class="site-header">
+        <div class="header-inner">
+            <a class="brand" href="signature.html">서명·도장 만들기</a>
+            <div class="segmented" id="themeSelect">
+            <button type="button" data-value="auto">자동</button>
+            <button type="button" data-value="light">☀️</button>
+            <button type="button" data-value="dark">🌙</button>
+        </div>
+        </div>
+    </header>
+    <div class="navigation-bar">
+        <nav class="nav" aria-label="도구 선택">
+            <a href="index.html">DWG → PDF</a>
+            <a href="receipt.html">영수증 스캐너</a>
+            <a href="cutout.html">✂누끼 메이커</a>
+            <a href="signature.html" class="current">서명·도장</a>
+        </nav>
+    </div>
+
+    <section class="hero">
+        <h1>서명·도장 만들기</h1>
+        <p>
+            직접 손으로 서명하거나, 이름만 입력해 여러 글꼴의 서명과 도장 샘플을 한 번에 만들어 보세요.
+            마음에 드는 것을 골라 배경이 투명한 PNG로 저장하거나 복사할 수 있어요.
+            모든 작업은 내 브라우저 안에서만 이루어져요.
+        </p>
+        <div class="segmented mode-tabs" id="modeTabs" role="tablist" aria-label="만들기 방식">
+            <button type="button" data-value="draw" role="tab">✍️ 서명하기</button>
+            <button type="button" data-value="make" role="tab">✒️ 서명 만들기</button>
+            <button type="button" data-value="stamp" role="tab">🔴 도장 만들기</button>
+        </div>
+    </section>
+
+    <!-- ===== 서명하기 (직접 그리기) ===== -->
+    <main class="tool" id="panel-draw" data-mode="draw" hidden>
+        <section class="panel controls">
+            <div class="field">
+                <span class="field-label">펜 색</span>
+                <div class="swatches" id="drawColors">
+                    <button type="button" data-value="#111111" style="--swatch:#111111" aria-label="검정" class="active"></button>
+                    <button type="button" data-value="#1f3a8a" style="--swatch:#1f3a8a" aria-label="남색"></button>
+                    <button type="button" data-value="#1d5ad8" style="--swatch:#1d5ad8" aria-label="파랑"></button>
+                    <button type="button" data-value="#c81e1e" style="--swatch:#c81e1e" aria-label="빨강"></button>
+                    <input type="color" id="drawCustom" value="#3b2f2f" aria-label="직접 고르기">
+                </div>
+            </div>
+            <div class="field">
+                <label class="field-label" for="penWidth">펜 굵기 <output id="penWidthValue">5</output></label>
+                <input type="range" id="penWidth" min="1" max="14" value="5">
+            </div>
+            <div class="field">
+                <label class="check"><input type="checkbox" id="pressureCheck" checked> 빠르게 그으면 가늘게 (붓펜 느낌)</label>
+                <label class="check"><input type="checkbox" id="drawWhite"> 흰 배경으로 저장</label>
+            </div>
+            <div class="button-row">
+                <button type="button" id="undoButton" class="secondary" disabled>↶ 되돌리기</button>
+                <button type="button" id="clearButton" class="secondary" disabled>모두 지우기</button>
+            </div>
+            <button type="button" id="drawSave" class="primary" disabled>PNG 저장</button>
+            <button type="button" id="drawCopy" class="secondary" disabled>이미지 복사</button>
+        </section>
+
+        <section class="panel">
+            <div class="pad-wrap">
+                <canvas id="pad" class="pad" aria-label="서명 입력 칸"></canvas>
+                <span class="pad-placeholder" id="padPlaceholder">여기에 서명하세요</span>
+                <span class="pad-line" aria-hidden="true"></span>
+            </div>
+            <p class="field-help pad-help">마우스, 손가락, 펜으로 그릴 수 있어요. 저장할 때 서명 주변의 빈 공간은 자동으로 잘라내요.</p>
+        </section>
+    </main>
+
+    <!-- ===== 서명 만들기 (이름으로 샘플 생성) ===== -->
+    <main class="tool" id="panel-make" data-mode="make" hidden>
+        <section class="panel controls">
+            <div class="field">
+                <label class="field-label" for="signName">한글 이름</label>
+                <input type="text" id="signName" class="text-input" maxlength="12" value="홍길동" autocomplete="name">
+            </div>
+            <div class="field">
+                <label class="field-label" for="signNameEn">영문 이름 <span class="optional">(선택)</span></label>
+                <input type="text" id="signNameEn" class="text-input" maxlength="24" value="Gildong Hong" autocomplete="off" spellcheck="false">
+                <p class="field-help">영문 이름을 넣으면 필기체 서명과 이니셜 서명도 함께 만들어요.</p>
+            </div>
+            <div class="field">
+                <span class="field-label">글꼴 종류</span>
+                <div class="chips" id="signGroups">
+                    <button type="button" data-value="all" class="active">전체</button>
+                    <button type="button" data-value="hand">손글씨</button>
+                    <button type="button" data-value="brush">붓글씨</button>
+                    <button type="button" data-value="print">정자·디자인</button>
+                    <button type="button" data-value="en">영문 필기체</button>
+                </div>
+            </div>
+            <div class="field">
+                <span class="field-label">잉크 색</span>
+                <div class="swatches" id="signColors">
+                    <button type="button" data-value="#111111" style="--swatch:#111111" aria-label="검정" class="active"></button>
+                    <button type="button" data-value="#1f3a8a" style="--swatch:#1f3a8a" aria-label="남색"></button>
+                    <button type="button" data-value="#1d5ad8" style="--swatch:#1d5ad8" aria-label="파랑"></button>
+                    <button type="button" data-value="#c81e1e" style="--swatch:#c81e1e" aria-label="빨강"></button>
+                    <input type="color" id="signCustom" value="#3b2f2f" aria-label="직접 고르기">
+                </div>
+            </div>
+            <div class="field">
+                <label class="check"><input type="checkbox" id="signWhite"> 흰 배경으로 저장</label>
+            </div>
+            <button type="button" id="signMore" class="primary">샘플 더 만들기</button>
+            <p class="field-help">누를 때마다 기울기, 흘림, 꾸밈 획이 다른 샘플이 더해져요.</p>
+        </section>
+
+        <section class="panel gallery-panel">
+            <div class="gallery-head">
+                <h2>서명 샘플 <span class="count" id="signCount"></span></h2>
+                <span class="status-line" id="signStatus" role="status"></span>
+            </div>
+            <div class="sample-grid sign-grid" id="signGrid"></div>
+        </section>
+    </main>
+
+    <!-- ===== 도장 만들기 ===== -->
+    <main class="tool" id="panel-stamp" data-mode="stamp" hidden>
+        <section class="panel controls">
+            <div class="field">
+                <label class="field-label" for="stampName">도장 글자</label>
+                <input type="text" id="stampName" class="text-input" maxlength="8" value="홍길동" autocomplete="name">
+            </div>
+            <div class="field">
+                <span class="field-label">끝 글자</span>
+                <div class="chips" id="stampSuffix">
+                    <button type="button" data-value="">없음</button>
+                    <button type="button" data-value="인" class="active">인</button>
+                    <button type="button" data-value="의인">의인</button>
+                    <button type="button" data-value="印">印</button>
+                    <button type="button" data-value="之印">之印</button>
+                </div>
+            </div>
+            <div class="field">
+                <label class="field-label" for="companyName">회사·단체명 <span class="optional">(선택)</span></label>
+                <input type="text" id="companyName" class="text-input" maxlength="16" placeholder="예: 주식회사 한빛" autocomplete="organization">
+                <p class="field-help">넣으면 원형 법인 인감과 사각 직인 샘플도 만들어요.</p>
+            </div>
+            <div class="field">
+                <span class="field-label">모양</span>
+                <div class="chips" id="stampShapes">
+                    <button type="button" data-value="all" class="active">전체</button>
+                    <button type="button" data-value="circle">원형</button>
+                    <button type="button" data-value="ellipse">타원</button>
+                    <button type="button" data-value="square">사각</button>
+                    <button type="button" data-value="rounded">둥근사각</button>
+                    <button type="button" data-value="double">이중원</button>
+                    <button type="button" data-value="wide">가로형</button>
+                </div>
+            </div>
+            <div class="field">
+                <span class="field-label">글자 배치</span>
+                <div class="segmented" id="stampOrder">
+                    <button type="button" data-value="vertical" class="active">세로쓰기 (전통)</button>
+                    <button type="button" data-value="horizontal">가로쓰기</button>
+                </div>
+                <p class="field-help">세로쓰기는 오른쪽 줄부터 위→아래로 읽어요. 예: 홍길동인 → 오른쪽 '홍길', 왼쪽 '동인'</p>
+            </div>
+            <div class="field">
+                <span class="field-label">새김</span>
+                <div class="segmented" id="stampCarve">
+                    <button type="button" data-value="relief" class="active">양각 (글자가 빨강)</button>
+                    <button type="button" data-value="intaglio">음각</button>
+                    <button type="button" data-value="both">모두</button>
+                </div>
+            </div>
+            <div class="field">
+                <span class="field-label">인주 색</span>
+                <div class="swatches" id="stampColors">
+                    <button type="button" data-value="#d42a2a" style="--swatch:#d42a2a" aria-label="인주 빨강" class="active"></button>
+                    <button type="button" data-value="#a3111c" style="--swatch:#a3111c" aria-label="진홍"></button>
+                    <button type="button" data-value="#e5532d" style="--swatch:#e5532d" aria-label="주홍"></button>
+                    <button type="button" data-value="#1f3a8a" style="--swatch:#1f3a8a" aria-label="남색"></button>
+                    <button type="button" data-value="#111111" style="--swatch:#111111" aria-label="검정"></button>
+                    <input type="color" id="stampCustom" value="#8b1a4a" aria-label="직접 고르기">
+                </div>
+            </div>
+            <div class="field">
+                <label class="field-label" for="stampWear">찍힌 느낌 <output id="stampWearValue">보통</output></label>
+                <input type="range" id="stampWear" min="0" max="4" value="2">
+            </div>
+            <div class="field">
+                <label class="field-label" for="stampBorder">테두리 굵기 <output id="stampBorderValue">보통</output></label>
+                <input type="range" id="stampBorder" min="1" max="5" value="3">
+            </div>
+            <div class="field">
+                <label class="check"><input type="checkbox" id="stampWhite"> 흰 배경으로 저장</label>
+            </div>
+        </section>
+
+        <section class="panel gallery-panel">
+            <div class="gallery-head">
+                <h2>도장 샘플 <span class="count" id="stampCount"></span></h2>
+                <span class="status-line" id="stampStatus" role="status"></span>
+            </div>
+            <div class="sample-grid stamp-grid" id="stampGrid"></div>
+        </section>
+    </main>
+
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+    <script src="imagekit.js"></script>
+    <script src="signature.js"></script>
+
+</body>
+</html>

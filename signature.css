@@ -1,0 +1,147 @@
+/* 서명·도장 만들기 페이지 */
+
+.mode-tabs { margin-top: 20px; }
+.mode-tabs button { padding: 10px 18px; font-size: 14px; }
+
+.text-input {
+    width: 100%;
+    min-height: 46px;
+    padding: 10px 14px;
+    font: inherit;
+    font-size: 16px;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+}
+.text-input:focus-visible { outline: 3px solid #03b75a; outline-offset: 2px; }
+.optional { color: var(--muted); font-weight: 400; font-size: 12px; }
+
+/* 칩 (여러 개 중 하나) */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips button {
+    padding: 7px 12px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--muted);
+    background: var(--surface);
+    border: 1px solid transparent;
+    border-radius: 999px;
+}
+.chips button.active { color: #03b75a; background: var(--soft-green); border-color: #03b75a; font-weight: 700; }
+
+/* 색 고르기 */
+.swatches { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.swatches button {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border-radius: 50%;
+    background: var(--swatch);
+    border: 3px solid var(--card);
+    box-shadow: 0 0 0 1px var(--line);
+}
+.swatches button.active { box-shadow: 0 0 0 2px #03b75a; }
+.swatches input[type="color"] { width: 40px; height: 32px; }
+.swatches input[type="color"].active { box-shadow: 0 0 0 2px #03b75a; }
+
+button.secondary {
+    width: 100%;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--line);
+}
+button.secondary:hover:not(:disabled) { background: var(--soft-green); }
+.button-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+/* 서명 입력 칸 (종이는 늘 흰색) */
+.pad-wrap {
+    position: relative;
+    aspect-ratio: 5 / 2;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #fff;
+    overflow: hidden;
+}
+.pad { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+.pad-placeholder {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    color: #b5bbc2;
+    font-size: clamp(16px, 3vw, 24px);
+    pointer-events: none;
+}
+.pad-line {
+    position: absolute;
+    left: 8%;
+    right: 8%;
+    bottom: 26%;
+    border-bottom: 1px dashed #d4d9de;
+    pointer-events: none;
+}
+.pad-help { margin-top: 12px; }
+
+/* 샘플 목록 */
+.gallery-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.gallery-head h2 { font-size: 17px; }
+.count { color: var(--muted); font-weight: 500; font-size: 13px; margin-left: 4px; }
+.status-line { color: var(--muted); font-size: 12px; }
+
+.sample-grid { display: grid; gap: 12px; }
+.sign-grid { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+.stamp-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+
+.sample {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--card);
+    transition: border-color .15s;
+}
+.sample:hover { border-color: #03b75a; }
+.sample-art {
+    display: grid;
+    place-items: center;
+    background: #fff;
+    padding: 12px;
+}
+.sign-grid .sample-art { aspect-ratio: 5 / 2; }
+.stamp-grid .sample-art { aspect-ratio: 1; padding: 16px; }
+.sample-art { position: relative; overflow: hidden; }
+.sample-art canvas { position: absolute; inset: 12px; width: calc(100% - 24px); height: calc(100% - 24px); object-fit: contain; }
+.stamp-grid .sample-art canvas { inset: 16px; width: calc(100% - 32px); height: calc(100% - 32px); }
+.sample figcaption {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 8px 10px;
+    border-top: 1px solid var(--line);
+    font-size: 11px;
+    color: var(--muted);
+    min-width: 0;
+}
+.sample figcaption span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sample-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.sample-actions button {
+    padding: 5px 9px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text);
+    background: var(--surface);
+    border-radius: 6px;
+}
+.sample-actions button:hover { background: #03b75a; color: #fff; }
+.sample-grid .empty-note { grid-column: 1 / -1; padding: 40px 0; text-align: center; color: var(--muted); font-size: 13px; }
+
+@media (max-width: 520px) {
+    .mode-tabs { display: flex; }
+    .mode-tabs button { flex: 1; padding: 9px 6px; font-size: 13px; }
+    .sign-grid { grid-template-columns: minmax(0, 1fr); }
+    .stamp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
