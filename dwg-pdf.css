@@ -3,3 +3,5 @@
 .thumb{display:flex;align-items:center;justify-content:center;height:170px;background:#fff;margin:16px 0 10px;border-radius:7px;overflow:hidden;color:#6b7690;font-size:12px}.thumb img{display:block;max-width:100%;max-height:100%}
 .privacy a{color:var(--accent);text-decoration:underline}
 .optional{font-style:normal;font-weight:400;color:var(--muted);font-size:13px}
+.file-card input[type=file]{color:transparent;width:auto;max-width:100%}.file-list{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.file-chip{display:inline-flex;align-items:center;gap:4px;max-width:100%;padding:3px 3px 3px 10px;border:1px solid var(--line);border-radius:999px;background:#202839}.file-chip>span{overflow-wrap:anywhere}button.file-remove{min-height:0;width:26px;height:26px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--muted);font-size:16px;line-height:1;flex-shrink:0}button.file-remove:hover:enabled{background:#3a465f;color:#fff}fieldset:disabled .file-remove{display:none}
+@media(prefers-color-scheme:light){.file-chip{background:#eef2fb}button.file-remove:hover:enabled{background:#dbe3f3;color:#263d68}}

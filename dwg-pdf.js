@@ -19,7 +19,7 @@
   function setStep(step) { for (const name of ['upload', 'review', 'download']) { if (name === step) $(`step-${name}`).setAttribute('aria-current', 'step'); else $(`step-${name}`).removeAttribute('aria-current'); } }
   function toggleBusy(value) {
     busy = value; const analysed = frames.length > 0 || !$('review').hidden;
-    $('upload-fields').disabled = value || analysed; $('analyze').disabled = value || !ready || analysed;
+    $('upload-fields').disabled = value; $('analyze').disabled = value || !ready;
     $('generate').disabled = value || !selected.size; $('reset-order').disabled = value; $('output-paper').disabled = value;
     $('cancel').hidden = !analysed; $('cancel').disabled = value;
     for (const input of $('pages').querySelectorAll('button,input')) input.disabled = value || input.dataset.disabled === 'true';
@@ -113,9 +113,33 @@
     } catch (err) { $('preview-status').textContent = err.message; }
   }
 
-  $('drawing').addEventListener('change', () => { $('drawing-name').textContent = $('drawing').files[0]?.name || '선택한 파일 없음'; });
-  $('images').addEventListener('change', () => { const names = [...$('images').files].map(f => f.name); $('images-name').textContent = names.length ? `${names.length}개: ${names.join(', ')}` : '선택한 파일 없음'; });
-  $('reference').addEventListener('change', () => { $('reference-name').textContent = $('reference').files[0]?.name || '선택하지 않으면 자동 검출'; });
+  // 고른 파일은 input이 아니라 여기에 둠: 새로 고르면 바꾸고, 파일 대화상자를 취소하면 그대로 두고, 파일별로 지울 수 있게
+  const picked = { reference: [], drawing: [], images: [] };
+  const emptyText = { reference: '선택하지 않으면 자동 검출', drawing: '선택한 파일 없음', images: '선택한 파일 없음' };
+  function showFiles(id) {
+    const list = $(`${id}-name`); list.replaceChildren();
+    if (!picked[id].length) { list.textContent = emptyText[id]; return; }
+    picked[id].forEach((file, i) => {
+      const chip = document.createElement('span'); chip.className = 'file-chip';
+      const name = document.createElement('span'); name.textContent = file.name;
+      const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'file-remove'; remove.textContent = '×';
+      remove.title = `${file.name} 삭제`; remove.setAttribute('aria-label', remove.title);
+      remove.addEventListener('click', e => { e.preventDefault(); picked[id].splice(i, 1); filesChanged(id); });
+      chip.append(name, remove); list.append(chip);
+    });
+  }
+  function setFiles(id, files) { picked[id] = [...files]; filesChanged(id); }
+  function filesChanged(id) {
+    showFiles(id);
+    if (frames.length || !$('review').hidden) reset(); // 이전 분석 결과는 새 파일과 맞지 않음
+  }
+  for (const id of Object.keys(picked)) {
+    const input = $(id);
+    input.addEventListener('change', () => {
+      if (input.files.length) setFiles(id, input.files);
+      input.value = ''; // 같은 파일을 다시 골라도 change가 일어나게
+    });
+  }
   // 파일 카드에 끌어다 놓기: 놓은 파일을 그 카드의 file input에 넣고 change 이벤트로 이름 표시
   for (const card of document.querySelectorAll('.file-card')) {
     const input = card.querySelector('input[type=file]');
@@ -129,27 +153,27 @@
       const exts = input.accept.split(',').map(a => a.trim().toLowerCase());
       const files = [...e.dataTransfer.files].filter(f => exts.some(x => f.name.toLowerCase().endsWith(x))).slice(0, input.multiple ? undefined : 1);
       if (!files.length) return message(`${exts.map(x => x.slice(1).toUpperCase()).join('·')} 파일만 넣을 수 있습니다.`, true);
-      const list = new DataTransfer(); for (const f of files) list.items.add(f); input.files = list.files;
-      input.dispatchEvent(new Event('change')); message('');
+      setFiles(input.id, files); message('');
     });
   }
   // 카드 밖에 잘못 놓아도 브라우저가 파일을 열고 페이지를 떠나지 않게
   for (const type of ['dragover', 'drop']) window.addEventListener(type, e => { if (!e.defaultPrevented && [...(e.dataTransfer?.types || [])].includes('Files')) e.preventDefault(); });
-  $('space').addEventListener('change', () => { const layoutOption = $('paper').querySelector('[value="layout"]'); layoutOption.disabled = $('space').value !== 'layouts'; $('reference').disabled = $('space').value === 'layouts'; if (layoutOption.disabled && $('paper').value === 'layout') $('paper').value = 'A3'; });
+  $('space').addEventListener('change', () => { if (frames.length || !$('review').hidden) reset(); const layoutOption = $('paper').querySelector('[value="layout"]'); layoutOption.disabled = $('space').value !== 'layouts'; $('reference').disabled = $('space').value === 'layouts'; if (layoutOption.disabled && $('paper').value === 'layout') $('paper').value = 'A3'; });
   $('space').dispatchEvent(new Event('change'));
   $('upload-form').addEventListener('submit', async event => {
     event.preventDefault(); if (!ready || busy) return;
-    const file = $('drawing').files[0];
+    const file = picked.drawing[0];
     if (!file || !/\.(dwg|dxf)$/i.test(file.name)) return message('DWG 또는 DXF 도면 파일을 선택하세요.', true);
-    const refFile = $('space').value === 'model' ? $('reference').files[0] : null;
+    const refFile = $('space').value === 'model' ? picked.reference[0] : null;
     if (refFile && !/\.(dwg|dxf)$/i.test(refFile.name)) return message('기준 도곽 파일은 DWG 또는 DXF여야 합니다.', true);
     mode = $('space').value; fileName = file.name.replace(/\.(dwg|dxf)$/i, '') || 'drawing';
     const paper = $('paper').value;
+    if (frames.length || !$('review').hidden) reset(); // 다시 분석
     toggleBusy(true); message('도면을 읽고 있습니다…');
     try {
       const buffer = await file.arrayBuffer(), refBuffer = refFile ? await refFile.arrayBuffer() : null;
       const reference = refBuffer ? { file: refBuffer, name: refFile.name } : null;
-      const images = await Promise.all([...$('images').files].map(async f => ({ file: await f.arrayBuffer(), name: f.name })));
+      const images = await Promise.all(picked.images.map(async f => ({ file: await f.arrayBuffer(), name: f.name })));
       const result = await run('analyze', { file: buffer, name: file.name, mode, reference, images }, [buffer, ...(refBuffer ? [refBuffer] : []), ...images.map(i => i.file)]);
       frames = result.pages; initialOrder = frames.map(f => f.id); selected = new Set(initialOrder);
       $('output-paper').value = paper; $('output-paper').querySelector('[value="layout"]').disabled = mode !== 'layouts';
