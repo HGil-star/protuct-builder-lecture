@@ -298,13 +298,14 @@ def _fix_all_layers_off(pairs: list[bytes], sections: dict) -> int:
     LibreDWG 0.13은 일부 DWG(R2010 등)에서 레이어 색을 잘못 써서 모든 레이어가 꺼진 것으로
     나옵니다. 실제 도면에서 모든 레이어가 꺼진 경우는 없으므로 이때만 고칩니다.
     일부만 꺼진 레이어는 작성자의 의도이므로 그대로 둡니다.
+    트루컬러 레이어(Rhino Make2D 등)는 색 번호를 0으로 써서 켜짐·꺼짐을 알 수 없으므로 판단에서 뺍니다.
     """
     if b"TABLES" not in sections:
         return 0
     colors = []
     for a, b in _entries(pairs, *sections[b"TABLES"]):
         if pairs[a + 1].strip() == b"LAYER":
-            colors += [k + 1 for k in range(a + 2, b - 1, 2) if pairs[k] == b"62"]
+            colors += [k + 1 for k in range(a + 2, b - 1, 2) if pairs[k] == b"62" and pairs[k + 1].strip() not in (b"0", b"-0")]
     if len(colors) < 2 or not all(pairs[k].strip().startswith(b"-") for k in colors):
         return 0
     for k in colors:

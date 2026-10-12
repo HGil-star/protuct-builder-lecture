@@ -117,6 +117,17 @@ test('모든 레이어가 꺼진 것으로 변환된 도면은 레이어를 다�
   assert.ok(pdf.length > 3000, `빈 페이지가 아니어야 함 (${pdf.length} bytes)`);
 });
 
+test('트루컬러 레이어(색 번호 0)가 섞여 있어도 꺼진 레이어를 다시 켠다', async () => {
+  // Rhino Make2D 레이어처럼 트루컬러만 있는 레이어는 LibreDWG가 색 번호를 부호 없이 0으로 씀
+  const text = (await fixture('all-layers-off.dxf')).toString('utf8');
+  const truecolor = text.replace(/(\n  2(\r?\n)Defpoints\2 70\2 +\d+\2 62\2) *-7\2/, '$1     0$2420$2-1040187392$2');
+  assert.notEqual(truecolor, text);
+  const result = await engine.analyze(new TextEncoder().encode(truecolor), 'x.dxf', 'model');
+  assert.equal(result.pages.length, 4);
+  const pdf = Buffer.from(engine.pdf(['P1'], 'A3', true).bytes);
+  assert.ok(pdf.length > 3000, `빈 페이지가 아니어야 함 (${pdf.length} bytes)`);
+});
+
 test('연결 이미지는 올린 파일을 이름으로 찾아 PDF에 넣는다', async () => {
   const drawing = await fixture('linked-image.dxf');
   const without = await engine.analyze(drawing, 'linked-image.dxf', 'model');
