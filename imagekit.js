@@ -581,6 +581,13 @@ const ImageKit = (function () {
             apply();
         });
         apply();
+
+        // 좁은 화면에서 메뉴가 옆으로 밀려도 지금 페이지 메뉴는 보이게
+        const bar = document.querySelector(".navigation-bar");
+        const current = bar && bar.querySelector("a.current");
+        if (current && bar.scrollWidth > bar.clientWidth) {
+            bar.scrollLeft = current.offsetLeft + current.offsetWidth - bar.clientWidth + 16;
+        }
     }
 
     // 클릭, 끌어다 놓기, 붙여넣기(Ctrl+V)로 이미지 받기

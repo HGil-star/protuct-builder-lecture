@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>명함 만들기 – 양식 골라 PNG로 저장</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&family=Noto+Serif+KR:wght@400;700&family=Nanum+Gothic:wght@400;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="common.css">
+    <link rel="stylesheet" href="ui.css">
+    <link rel="stylesheet" href="card.css">
+</head>
+
+<body>
+
+    <header class="site-header">
+        <div class="header-inner">
+            <a class="brand" href="card.html">명함 만들기</a>
+            <div class="segmented" id="themeSelect">
+            <button type="button" data-value="auto">자동</button>
+            <button type="button" data-value="light">☀️</button>
+            <button type="button" data-value="dark">🌙</button>
+        </div>
+        </div>
+    </header>
+    <div class="navigation-bar">
+        <nav class="nav" aria-label="도구 선택">
+            <a href="index.html">DWG → PDF</a>
+            <a href="receipt.html">영수증 스캐너</a>
+            <a href="cutout.html">✂ 배경 지우개</a>
+            <a href="signature.html">서명·도장</a>
+            <a href="card.html" class="current">명함</a>
+        </nav>
+    </div>
+
+    <section class="hero">
+        <h1>명함 만들기</h1>
+        <p>
+            테두리 양식을 고르고 로고와 연락처를 넣으면 제자리에 알아서 배치해요.
+            미리보기에서 로고나 글자를 끌어서 위치를 바꿀 수 있고, 90 × 50mm 인쇄용 PNG(300dpi)로 저장해요.
+            모든 작업은 내 브라우저 안에서만 이루어져요.
+        </p>
+    </section>
+
+    <main class="tool card-tool">
+
+        <!-- 설정 -->
+        <section class="panel controls">
+
+            <!-- 1. 양식 -->
+            <div class="field">
+                <span class="field-label">1. 테두리 양식</span>
+                <div class="template-grid" id="templateGrid"></div>
+            </div>
+            <div class="field">
+                <span class="field-label">주 색상</span>
+                <div class="swatches" id="mainColors">
+                    <button type="button" data-value="#1f3a8a" style="--swatch:#1f3a8a" aria-label="남색" class="active"></button>
+                    <button type="button" data-value="#0f766e" style="--swatch:#0f766e" aria-label="청록"></button>
+                    <button type="button" data-value="#b91c1c" style="--swatch:#b91c1c" aria-label="빨강"></button>
+                    <button type="button" data-value="#c2410c" style="--swatch:#c2410c" aria-label="주황"></button>
+                    <button type="button" data-value="#6d28d9" style="--swatch:#6d28d9" aria-label="보라"></button>
+                    <button type="button" data-value="#1f2937" style="--swatch:#1f2937" aria-label="먹색"></button>
+                    <input type="color" id="mainCustom" value="#2563eb" aria-label="주 색상 직접 고르기">
+                </div>
+            </div>
+            <div class="field">
+                <span class="field-label">보조 색상</span>
+                <div class="swatches" id="subColors">
+                    <button type="button" data-value="#93c5fd" style="--swatch:#93c5fd" aria-label="하늘" class="active"></button>
+                    <button type="button" data-value="#c9a227" style="--swatch:#c9a227" aria-label="금색"></button>
+                    <button type="button" data-value="#d1d5db" style="--swatch:#d1d5db" aria-label="연회색"></button>
+                    <button type="button" data-value="#5eead4" style="--swatch:#5eead4" aria-label="민트"></button>
+                    <button type="button" data-value="#fca5a5" style="--swatch:#fca5a5" aria-label="분홍"></button>
+                    <input type="color" id="subCustom" value="#facc15" aria-label="보조 색상 직접 고르기">
+                </div>
+            </div>
+            <div class="field">
+                <span class="field-label">글꼴</span>
+                <div class="segmented" id="fontSelect">
+                    <button type="button" data-value="sans" class="active">고딕</button>
+                    <button type="button" data-value="serif">명조</button>
+                    <button type="button" data-value="nanum">나눔고딕</button>
+                </div>
+            </div>
+
+            <!-- 사용자 정의 도형 -->
+            <div class="field">
+                <span class="field-label">도형 더하기 <span class="optional">(선택)</span></span>
+                <div class="chips" id="shapeAdd">
+                    <button type="button" data-value="rect">＋ 사각형</button>
+                    <button type="button" data-value="circle">＋ 원</button>
+                    <button type="button" data-value="line">＋ 선</button>
+                    <button type="button" data-value="triangle">＋ 삼각형</button>
+                </div>
+                <div class="shape-list" id="shapeList"></div>
+                <p class="field-help">양식 위에 기본 도형을 원하는 색으로 얹어요. 미리보기에서 끌어서 옮길 수 있어요.</p>
+            </div>
+
+            <!-- 2. 로고 -->
+            <div class="field">
+                <span class="field-label">2. 회사 로고 <span class="optional">(선택)</span></span>
+                <label class="dropzone logo-drop" id="logoDrop">
+                    <input type="file" id="logoInput" accept="image/*" hidden>
+                    <strong>로고 이미지 올리기</strong>
+                    <span>클릭하거나, 끌어다 놓거나, Ctrl+V로 붙여넣기</span>
+                </label>
+                <div class="file-list" id="logoFile" hidden></div>
+                <div class="logo-options" id="logoOptions" hidden>
+                    <label class="check">
+                        <input type="checkbox" id="logoClear" checked>
+                        로고 뒷배경 투명하게
+                    </label>
+                    <label class="field-label" for="logoSize">
+                        로고 크기 <output id="logoSizeValue">100%</output>
+                    </label>
+                    <input type="range" id="logoSize" min="30" max="250" value="100">
+                </div>
+            </div>
+
+            <!-- 3. 내용 -->
+            <div class="field">
+                <span class="field-label">3. 내용</span>
+                <div class="segmented" id="langSelect">
+                    <button type="button" data-value="ko" class="active">한글</button>
+                    <button type="button" data-value="en">English</button>
+                    <button type="button" data-value="custom">직접 입력</button>
+                </div>
+                <p class="field-help" id="langHelp">항목 이름을 한글로 써요. (주소, 전화, 팩스 …)</p>
+            </div>
+            <div class="info-form">
+                <label class="info-row">
+                    <span class="info-label">회사명</span>
+                    <input type="text" class="text-input" id="company" autocomplete="organization">
+                </label>
+                <label class="info-row">
+                    <span class="info-label">이름</span>
+                    <input type="text" class="text-input" id="name" autocomplete="name">
+                </label>
+                <label class="info-row">
+                    <span class="info-label">직급</span>
+                    <input type="text" class="text-input" id="title" autocomplete="organization-title">
+                </label>
+                <label class="info-row">
+                    <span class="info-label">부서</span>
+                    <input type="text" class="text-input" id="dept" autocomplete="off">
+                </label>
+            </div>
+            <div class="info-form" id="rowList"></div>
+            <button type="button" class="secondary" id="addRow">＋ 항목 추가</button>
+
+            <button type="button" class="secondary" id="resetLayout">글자·로고 위치 처음대로</button>
+        </section>
+
+        <!-- 미리보기 -->
+        <section class="panel card-preview">
+            <div class="card-stage">
+                <canvas id="cardCanvas" tabindex="0" aria-label="명함 미리보기. 로고나 글자를 끌어서 옮길 수 있어요"></canvas>
+            </div>
+            <p class="field-help stage-help">로고·회사명·이름·연락처·도형을 끌어서 옮길 수 있어요. 고른 뒤 방향키로 조금씩 움직일 수도 있어요.</p>
+            <button type="button" class="primary" id="downloadButton">PNG 다운로드 (1063 × 591)</button>
+        </section>
+
+    </main>
+
+    <script src="imagekit.js"></script>
+    <script src="card.js"></script>
+
+</body>
+</html>

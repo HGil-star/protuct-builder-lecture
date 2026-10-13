@@ -1,0 +1,81 @@
+/* 명함 만들기 페이지 */
+
+@media (min-width: 900px) {
+    .card-tool { grid-template-columns: 380px minmax(0, 1fr); }
+    /* 설정이 길어서 미리보기는 화면에 붙어 있게 */
+    .card-preview { position: sticky; top: 16px; }
+}
+@media (max-width: 899px) {
+    .card-preview { order: -1; }
+}
+
+/* 미리보기 (명함 종이는 늘 흰색) */
+.card-stage {
+    padding: clamp(12px, 4vw, 40px);
+    border-radius: 12px;
+    background: var(--surface);
+}
+.card-stage canvas {
+    display: block;
+    width: 100%;
+    aspect-ratio: 9 / 5;
+    background: #fff;
+    border-radius: 4px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.14), 0 0 0 1px rgba(0, 0, 0, 0.06);
+    touch-action: none;
+}
+.card-stage canvas:focus-visible { outline: 3px solid #03b75a; outline-offset: 4px; }
+.stage-help { margin: 12px 0 16px; }
+
+/* 양식 고르기 */
+.template-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.template-grid .template {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 6px 6px 8px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted);
+    background: var(--surface);
+    border: 2px solid transparent;
+    border-radius: 10px;
+}
+.template-grid .template canvas {
+    display: block;
+    width: 100%;
+    aspect-ratio: 9 / 5;
+    background: #fff;
+    border-radius: 3px;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
+}
+.template-grid .template.active { color: #03b75a; font-weight: 700; border-color: #03b75a; background: var(--soft-green); }
+
+/* 로고 */
+.logo-drop { padding: 18px 12px; }
+.logo-options { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+
+/* 내용 입력 */
+.info-form { display: flex; flex-direction: column; gap: 8px; }
+.info-row { display: grid; grid-template-columns: 76px minmax(0, 1fr); align-items: center; gap: 8px; }
+.info-row.removable { grid-template-columns: 76px minmax(0, 1fr) 26px; }
+.info-row .text-input { min-height: 40px; padding: 8px 10px; font-size: 14px; }
+.info-label { font-size: 13px; font-weight: 700; color: var(--muted); }
+.info-row .info-label-input { padding: 8px 8px; font-size: 13px; font-weight: 700; }
+
+/* 사용자 도형 */
+.shape-list { display: flex; flex-direction: column; gap: 8px; }
+.shape-list:empty { display: none; }
+.shape-item {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+}
+.shape-item.active { border-color: #03b75a; }
+.shape-head { display: flex; align-items: center; gap: 8px; }
+.shape-head strong { flex: 1; font-size: 13px; }
+.shape-head input[type="color"] { width: 36px; height: 26px; }
+.shape-size { display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
