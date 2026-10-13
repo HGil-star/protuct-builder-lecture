@@ -68,13 +68,13 @@ dwg_sheets.setup_fonts('/app/fonts', '${FONT}')
       }
       finally { py.FS.unlink('/work/in.dxf'); }
     },
-    thumbnail(id, mono) { return sheets.thumbnail(id, mono); },
-    pdf(ids, paper, mono) {
+    thumbnail(id, mono, clearWhite = true) { return sheets.thumbnail(id, mono, clearWhite); },
+    pdf(ids, paper, mono, clearWhite = true) {
       const list = py.toPy(ids);
       const onPage = (done, total) => progress(`PDF를 만드는 중 ${done + 1}/${total}쪽`);
       try {
         sheets.take_skipped();
-        const proxy = sheets.render_pdf(list, paper, mono, onPage); const bytes = proxy.toJs(); proxy.destroy();
+        const proxy = sheets.render_pdf(list, paper, mono, onPage, clearWhite); const bytes = proxy.toJs(); proxy.destroy();
         return { bytes, skipped: sheets.take_skipped() };
       }
       finally { list.destroy(); }

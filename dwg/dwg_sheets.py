@@ -51,6 +51,7 @@ _pages: list[dict] = []
 _cache = None
 _images: dict[str, str] = {}  # 올린 이미지 파일: 정규화한 파일 이름 → 경로
 _gray = False  # 흑백 출력이면 이미지도 회색조로
+_clear_white = True  # 이미지의 흰 배경을 투명하게 (끄면 흰 배경 그대로)
 
 
 # --------------------------------------------------------------------- 폰트
@@ -1265,12 +1266,15 @@ class _Frontend(Frontend):
             return  # 파일이 없으면 경로 글자 대신 아무것도 그리지 않음 (경고로 안내)
         if not _raster_frame(entity.doc):
             properties.color = properties.color[:7] + "00"  # 테두리 선은 투명하게
-        name = d.dxf.filename
+        name, flags = d.dxf.filename, entity.dxf.flags
         d.dxf.filename = path  # ezdxf는 절대 경로가 있으면 그대로 엶
+        # 투명 사용 플래그가 꺼져 있으면 ezdxf가 알파를 255로 덮어써 PNG의 투명 부분(대개 RGB 0)이
+        # 검게 나오므로, 알파는 그대로 받고 _image_pixels에서 배경을 정함
+        entity.dxf.flags = flags | entity.USE_TRANSPARENCY
         try:
             super().draw_image_entity(entity, properties)
         finally:
-            d.dxf.filename = name
+            d.dxf.filename, entity.dxf.flags = name, flags
 
     def draw_ole2frame_entity(self, entity, properties, matrix: Matrix44 | None = None) -> None:
         img = _ole_image(entity)
@@ -1326,10 +1330,21 @@ def _ole_corners(entity) -> list[Vec3] | None:
     return [Vec3(x0, y1), Vec3(x1, y1), Vec3(x1, y0), Vec3(x0, y0)]
 
 
+WHITE_LEVEL = 240  # R·G·B가 모두 이 값 이상이면 흰 배경으로 봄 (JPG 압축 얼룩 포함)
+
+
 def _image_pixels(image_data: ImageData, max_side: int = 0) -> PIL.Image.Image:
     img = PIL.Image.fromarray(image_data.image, mode="RGBA")
     if max_side and max(img.size) > max_side:
         img.thumbnail((max_side, max_side))
+    if _clear_white:  # 투명한 곳은 그대로, 흰색에 가까운 픽셀도 투명하게
+        rgb = np.asarray(img)[..., :3]
+        if (rgb.min(axis=2) >= WHITE_LEVEL).any():
+            alpha = np.asarray(img.getchannel("A")).copy()
+            alpha[rgb.min(axis=2) >= WHITE_LEVEL] = 0
+            img.putalpha(PIL.Image.fromarray(alpha, mode="L"))
+    elif img.getchannel("A").getextrema()[0] < 255:  # 투명한 곳을 흰 바탕으로 채움
+        img = PIL.Image.alpha_composite(PIL.Image.new("RGBA", img.size, "white"), img)
     if _gray:
         alpha = img.getchannel("A")
         img = img.convert("L").convert("RGBA")
@@ -1498,10 +1513,10 @@ def _darken_white(entity, properties) -> None:
         properties.color = "#000000" + color[7:]
 
 
-def _record(page: dict, mono: bool, backend) -> tuple:
+def _record(page: dict, mono: bool, backend, clear_white: bool = True) -> tuple:
     """페이지 하나의 객체만 backend에 기록하고 (layout.Page, render_box)를 돌려줍니다."""
-    global _entity_index, _gray
-    _gray = mono
+    global _entity_index, _gray, _clear_white
+    _gray, _clear_white = mono, clear_white
     ctx = RenderContext(_doc)
     ctx.document_dir = pathlib.Path("/")  # 이미지는 _Frontend가 절대 경로로 바꿔 엶
     # 도곽 폭의 1/8000 (A3 출력 기준 약 0.05 mm) 정도면 눈으로 구분되지 않음
@@ -1544,10 +1559,10 @@ def _paper(page: dict, paper: str, lay) -> layout.Page:
     return layout.Page(w, h, layout.Units.mm, margins=layout.Margins.all(min(w, h) * 0.04))
 
 
-def thumbnail(page_id: str, mono: bool = True) -> str:
+def thumbnail(page_id: str, mono: bool = True, clear_white: bool = True) -> str:
     page = _get(page_id)
     be = ThumbBackend()
-    lay, box = _record(page, mono, be)
+    lay, box = _record(page, mono, be, clear_white)
     ratio = page["width"] / page["height"] if page["height"] else 1.414
     w = 240 if ratio >= 1 else 240 * ratio
     out = layout.Page(w, w / ratio if ratio >= 1 else 240, layout.Units.mm)
@@ -1561,7 +1576,7 @@ def take_skipped() -> int:
     return count
 
 
-def render_pdf(page_ids: Iterable[str], paper: str = "A3", mono: bool = True, progress=None) -> bytes:
+def render_pdf(page_ids: Iterable[str], paper: str = "A3", mono: bool = True, progress=None, clear_white: bool = True) -> bytes:
     writer = PdfWriter()
     page_ids = list(page_ids)
     for done, pid in enumerate(page_ids):
@@ -1569,7 +1584,7 @@ def render_pdf(page_ids: Iterable[str], paper: str = "A3", mono: bool = True, pr
             progress(done, len(page_ids))
         page = _get(pid)
         be = PdfBackend()
-        lay, box = _record(page, mono, be)
+        lay, box = _record(page, mono, be, clear_white)
         writer.add_page(*be.get_page(_paper(page, paper, lay), render_box=box, clip_box=box))
     return writer.to_bytes()
 

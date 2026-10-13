@@ -77,26 +77,29 @@
   async function pumpThumbnails() {
     if (pumping) return;
     pumping = true;
-    const runId = thumbRun, mono = $('mono').checked;
+    const runId = thumbRun, mono = $('mono').checked, clearWhite = $('clear-white').checked;
     try {
       while (thumbQueue.size && !busy && runId === thumbRun) {
         const id = frames.find(f => thumbQueue.has(f.id))?.id;
         if (!id) { thumbQueue.clear(); break; }
         thumbQueue.delete(id);
         try {
-          const svg = await run('thumbnail', { page: id, mono });
+          const svg = await run('thumbnail', { page: id, mono, clearWhite });
           if (runId !== thumbRun) break;
           const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' })); thumbUrls.set(id, url); showThumb(id, url);
         } catch { if (runId === thumbRun) showThumb(id, null); }
       }
-    } finally { pumping = false; }
+    } finally {
+      pumping = false;
+      if (runId !== thumbRun && thumbQueue.size && !busy) void pumpThumbnails(); // 옵션을 바꾸는 동안 쌓인 새 미리보기
+    }
   }
   function drawThumbnails() {
     observer.disconnect();
     for (const box of $('pages').querySelectorAll('.thumb')) if (!thumbUrls.has(box.dataset.id)) observer.observe(box);
   }
   async function makePdf(ids, paper) {
-    const { bytes, skipped } = await run('pdf', { pages: ids, paper, mono: $('mono').checked });
+    const { bytes, skipped } = await run('pdf', { pages: ids, paper, mono: $('mono').checked, clearWhite: $('clear-white').checked });
     const blob = new Blob([bytes], { type: 'application/pdf' }); blob.skipped = skipped;
     return blob;
   }
@@ -158,6 +161,13 @@
   }
   // 카드 밖에 잘못 놓아도 브라우저가 파일을 열고 페이지를 떠나지 않게
   for (const type of ['dragover', 'drop']) window.addEventListener(type, e => { if (!e.defaultPrevented && [...(e.dataTransfer?.types || [])].includes('Files')) e.preventDefault(); });
+  // 흑백·흰 배경 옵션을 바꾸면 이미 그린 미리보기를 새 옵션으로 다시 그림
+  for (const id of ['mono', 'clear-white']) $(id).addEventListener('change', () => {
+    if (!frames.length) return;
+    thumbRun++; thumbQueue.clear();
+    for (const url of thumbUrls.values()) revoke(url); thumbUrls.clear();
+    render();
+  });
   $('space').addEventListener('change', () => { if (frames.length || !$('review').hidden) reset(); const layoutOption = $('paper').querySelector('[value="layout"]'); layoutOption.disabled = $('space').value !== 'layouts'; $('reference').disabled = $('space').value === 'layouts'; if (layoutOption.disabled && $('paper').value === 'layout') $('paper').value = 'A3'; });
   $('space').dispatchEvent(new Event('change'));
   $('upload-form').addEventListener('submit', async event => {

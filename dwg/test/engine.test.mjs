@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import zlib from 'node:zlib';
 import { loadPyodide } from 'pyodide';
 import createDwg2dxf from '../vendor/libredwg/dwg2dxf.mjs';
 import { createEngine } from '../engine.mjs';
@@ -141,4 +142,25 @@ test('연결 이미지는 올린 파일을 이름으로 찾아 PDF에 넣는다'
   assert.match(pdf, /\/Subtype \/Image \/Width 40 \/Height 20 \/ColorSpace \/DeviceRGB/);
   assert.match(pdf, /\/XObject << \/Im0 \d+ 0 R >>/);
   assert.match(engine.thumbnail('P1', false), /<image [^>]*href="data:image\/png;base64,/);
+});
+
+test('이미지의 투명·흰 배경은 기본으로 투명하게, 옵션을 끄면 흰색으로 출력한다 (검은 배경 방지)', async () => {
+  // 투명 배경(RGB 0) 위에 흰 사각형과 빨간 글자가 있는 로고. ezdxf는 투명 사용 플래그가 없으면 투명 부분을 검게 만듦
+  const images = [{ bytes: await fixture('logo-alpha.png'), name: 'logo.png' }];
+  await engine.analyze(await fixture('linked-image.dxf'), 'linked-image.dxf', 'model', null, images);
+  const imageStreams = pdf => [...pdf.matchAll(/<< \/Type \/XObject \/Subtype \/Image [^]*?\/Length (\d+) \/Filter \/FlateDecode >>\nstream\n/g)]
+    .map(m => ({ head: m[0], data: zlib.inflateSync(Buffer.from(pdf.slice(m.index + m[0].length, m.index + m[0].length + Number(m[1])), 'latin1')) }));
+
+  const clear = imageStreams(Buffer.from(engine.pdf(['P1'], 'A4', false).bytes).toString('latin1'));
+  const mask = clear.find(s => s.head.includes('/DeviceGray') && !s.head.includes('/SMask'));
+  const rgb = clear.find(s => s.head.includes('/DeviceRGB'));
+  assert.match(rgb.head, /\/SMask \d+ 0 R/);
+  assert.equal(mask.data.filter(a => a === 255).length, 16 * 6, '빨간 글자만 보이고 흰색·투명 부분은 가림');
+
+  const white = imageStreams(Buffer.from(engine.pdf(['P1'], 'A4', false, false).bytes).toString('latin1'));
+  assert.equal(white.length, 1);
+  assert.doesNotMatch(white[0].head, /\/SMask/);
+  const pixels = [...white[0].data];
+  assert.ok(!pixels.some((v, i) => i % 3 === 0 && v === 0 && pixels[i + 1] === 0 && pixels[i + 2] === 0), '검은 픽셀이 없어야 함');
+  assert.match(engine.thumbnail('P1', false, false), /<image [^>]*href="data:image\/png;base64,/);
 });
