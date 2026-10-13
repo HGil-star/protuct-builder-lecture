@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import zlib from 'node:zlib';
 import { loadPyodide } from 'pyodide';
 import createDwg2dxf from '../vendor/libredwg/dwg2dxf.mjs';
-import { createEngine } from '../engine.mjs';
+import { createEngine, jpegComponents } from '../engine.mjs';
 
 const root = new URL('../', import.meta.url);
 const engine = await createEngine({
@@ -163,4 +163,12 @@ test('이미지의 투명·흰 배경은 기본으로 투명하게, 옵션을 �
   const pixels = [...white[0].data];
   assert.ok(!pixels.some((v, i) => i % 3 === 0 && v === 0 && pixels[i + 1] === 0 && pixels[i + 2] === 0), '검은 픽셀이 없어야 함');
   assert.match(engine.thumbnail('P1', false, false), /<image [^>]*href="data:image\/png;base64,/);
+});
+
+test('CMYK JPEG를 알아본다 (Worker에서 브라우저 디코더로 PNG로 바꿔 검은 로고를 막음)', async () => {
+  // Pyodide의 Pillow는 Adobe CMYK JPEG를 YCCK로 잘못 풀어 흰 바탕이 거의 검게 나옴
+  assert.equal(jpegComponents(await fixture('logo-cmyk.jpg')), 4);
+  assert.equal(jpegComponents(await fixture('logo-rgb.jpg')), 3);
+  assert.equal(jpegComponents(await fixture('logo-alpha.png')), 0);
+  assert.equal(jpegComponents(new Uint8Array([0xff, 0xd8, 0xff])), 0);
 });

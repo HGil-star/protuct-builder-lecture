@@ -4,6 +4,21 @@ export const PYODIDE_VERSION = '0.28.3';
 const EZDXF_WHEEL = 'vendor/ezdxf-1.4.4-py3-none-any.whl';
 const FONT = 'NanumGothic.ttf';
 
+// JPEG의 색 채널 수 (4면 CMYK, JPEG가 아니면 0). 프레임 머리(SOFn)의 채널 수를 읽습니다.
+export function jpegComponents(bytes) {
+  if (bytes[0] !== 0xff || bytes[1] !== 0xd8) return 0;
+  let i = 2;
+  while (i + 9 < bytes.length) {
+    if (bytes[i] !== 0xff) return 0;
+    const marker = bytes[i + 1];
+    if (marker === 0xff) { i++; continue; } // 채움 바이트
+    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) return bytes[i + 9];
+    if (marker === 0xda || marker === 0xd9) return 0; // 프레임 머리 전에 영상 자료가 시작됨
+    i += 2 + ((bytes[i + 2] << 8) | bytes[i + 3]);
+  }
+  return 0;
+}
+
 export async function createEngine({ loadPyodide, createDwg2dxf, readAsset, progress = () => {} }) {
   progress('Python 실행 환경을 불러오는 중');
   const py = await loadPyodide();
