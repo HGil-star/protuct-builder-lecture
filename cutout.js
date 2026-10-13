@@ -7,6 +7,8 @@ const tolerance = document.getElementById("tolerance");
 const toleranceValue = document.getElementById("toleranceValue");
 const trimCheck = document.getElementById("trimCheck");
 const speckCheck = document.getElementById("speckCheck");
+const straightenCheck = document.getElementById("straightenCheck");
+const fileList = document.getElementById("fileList");
 const paddingField = document.getElementById("paddingField");
 const padding = document.getElementById("padding");
 const paddingValue = document.getElementById("paddingValue");
@@ -19,6 +21,8 @@ const statusBox = document.getElementById("status");
 const statusText = document.getElementById("statusText");
 const progressBar = document.getElementById("progressBar");
 
+const STRAIGHTEN_FAIL = "직사각형 모양을 찾지 못해서 펴지 않았어요. 네모난 물체에만 쓸 수 있어요.";
+
 const METHOD_HELP = {
     ai: "복잡한 배경도 잘 지워요. 처음 한 번은 AI 모델(약 100MB)을 내려받아요.",
     color: "흰 벽, 단색 천처럼 배경이 한 가지 색일 때 빠르고 깔끔해요."
@@ -28,7 +32,8 @@ let method = "ai";
 let fileName = "image";
 let sourceCanvas = null;  // 올린 원본
 let cutCanvas = null;     // 배경만 지운 상태 (여백 자르기 전)
-let cleanCanvas = null;   // 잡티까지 지운 상태 (여백 슬라이더 움직일 때 재사용)
+let cleanCanvas = null;   // 잡티까지 지운 상태
+let shapedCanvas = null;  // 직사각형 펴기까지 한 상태 (여백 슬라이더 움직일 때 재사용)
 let resultCanvas = null;  // 최종 결과
 let jobId = 0;            // 처리 중에 새 작업이 시작되면 이전 결과는 버리기
 
@@ -87,14 +92,29 @@ function setCut(cut) {
 function updateClean() {
     if (!cutCanvas) return;
     cleanCanvas = speckCheck.checked ? ImageKit.removeSpecks(cutCanvas) : cutCanvas;
+    updateShape();
+}
+
+// 기울어진 직사각형 펴기 (켰을 때만)
+function updateShape() {
+    if (!cleanCanvas) return;
+    shapedCanvas = cleanCanvas;
+    let failed = false;
+    if (straightenCheck.checked) {
+        const straight = ImageKit.straightenRect(cleanCanvas);
+        if (straight) shapedCanvas = straight;
+        else failed = true;
+    }
+    if (failed) setStatus(STRAIGHTEN_FAIL, undefined, true);
+    else if (statusText.textContent === STRAIGHTEN_FAIL) setStatus("");
     renderResult();
 }
 
 // 여백 자르기 (빠르니까 옵션 바뀔 때마다 바로)
 function renderResult() {
-    if (!cleanCanvas) return;
+    if (!shapedCanvas) return;
 
-    let canvas = cleanCanvas;
+    let canvas = shapedCanvas;
     if (trimCheck.checked) {
         canvas = ImageKit.trimTransparent(canvas, Number(padding.value));
     }
@@ -114,6 +134,43 @@ function renderResult() {
     downloadButton.disabled = false;
 }
 
+// 올린 파일 이름과 지우기(×) 버튼
+function showFile(file) {
+    fileList.replaceChildren();
+    fileList.hidden = !file;
+    if (!file) return;
+    const chip = document.createElement("span");
+    chip.className = "file-chip";
+    const name = document.createElement("span");
+    name.textContent = file.name || "붙여넣은 이미지";
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "file-remove";
+    remove.textContent = "×";
+    remove.title = name.textContent + " 삭제";
+    remove.setAttribute("aria-label", remove.title);
+    remove.addEventListener("click", clearFile);
+    chip.append(name, remove);
+    fileList.append(chip);
+}
+
+function clearFile() {
+    jobId++; // 처리 중이던 결과는 버리기
+    sourceCanvas = null;
+    cutCanvas = null;
+    cleanCanvas = null;
+    shapedCanvas = null;
+    resultCanvas = null;
+    fileName = "image";
+    showFile(null);
+    setStatus("");
+    sourceBox.innerHTML = '<span class="empty">사진을 올려 주세요</span>';
+    resultBox.innerHTML = '<span class="empty">여기에 결과가 나와요</span>';
+    sourceSize.textContent = "";
+    resultSize.textContent = "";
+    downloadButton.disabled = true;
+}
+
 async function handleFile(file) {
     fileName = ImageKit.baseName(file.name);
     try {
@@ -123,10 +180,12 @@ async function handleFile(file) {
         return;
     }
 
+    showFile(file);
     ImageKit.showCanvas(sourceBox, ImageKit.cloneCanvas(sourceCanvas));
     sourceSize.textContent = sizeText(sourceCanvas);
     cutCanvas = null;
     cleanCanvas = null;
+    shapedCanvas = null;
     resultCanvas = null;
     resultSize.textContent = "";
     resultBox.innerHTML = '<span class="empty">처리 중…</span>';
@@ -160,7 +219,8 @@ trimCheck.addEventListener("change", function () {
     renderResult();
 });
 speckCheck.addEventListener("change", updateClean);
+straightenCheck.addEventListener("change", updateShape);
 
 downloadButton.addEventListener("click", function () {
-    if (resultCanvas) ImageKit.downloadPng(resultCanvas, fileName + "-누끼.png");
+    if (resultCanvas) ImageKit.downloadPng(resultCanvas, fileName + "-배경제거.png");
 });

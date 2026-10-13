@@ -140,3 +140,10 @@ button.link { font-size: 12px; text-decoration: none; }
 .ball.c4 { background: #87909c; }
 .ball.c5 { background: #04b66c; }
 .primary:focus-visible { outline-color: #111; }
+
+/* 올린 파일 이름과 지우기 버튼 */
+.file-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.file-chip { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 3px 3px 3px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--text); font-size: 13px; }
+.file-chip > span { overflow-wrap: anywhere; }
+button.file-remove { width: 26px; height: 26px; min-height: 0; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); font-size: 16px; line-height: 1; flex-shrink: 0; cursor: pointer; }
+button.file-remove:hover { background: var(--line); color: var(--text); }

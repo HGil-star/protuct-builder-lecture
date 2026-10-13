@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>누끼 메이커 – 배경 투명하게</title>
+    <title>배경 지우개 – 사진 배경을 투명하게</title>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -16,7 +16,7 @@
 
     <header class="site-header">
         <div class="header-inner">
-            <a class="brand" href="cutout.html">누끼 메이커</a>
+            <a class="brand" href="cutout.html">배경 지우개</a>
             <div class="segmented" id="themeSelect">
             <button type="button" data-value="auto">자동</button>
             <button type="button" data-value="light">☀️</button>
@@ -28,13 +28,13 @@
         <nav class="nav" aria-label="도구 선택">
             <a href="index.html">DWG → PDF</a>
             <a href="receipt.html">영수증 스캐너</a>
-            <a href="cutout.html" class="current">✂누끼 메이커</a>
+            <a href="cutout.html" class="current">✂ 배경 지우개</a>
             <a href="signature.html">서명·도장</a>
         </nav>
     </div>
 
     <section class="hero">
-        <h1>누끼 메이커</h1>
+        <h1>배경 지우개</h1>
         <p>
             사진을 올리면 배경을 지우고 투명한 PNG로 만들어 줘요.
             물체 주변의 필요 없는 여백도 자동으로 잘라내요.
@@ -51,6 +51,7 @@
                 <strong>사진 올리기</strong>
                 <span>클릭하거나, 끌어다 놓거나, Ctrl+V로 붙여넣기</span>
             </label>
+            <div class="file-list" id="fileList" hidden></div>
 
             <div class="field">
                 <span class="field-label">배경 제거 방식</span>
@@ -80,6 +81,11 @@
                     <input type="checkbox" id="speckCheck" checked>
                     작은 잡티 지우기
                 </label>
+                <label class="check">
+                    <input type="checkbox" id="straightenCheck">
+                    기울어진 직사각형 반듯하게 펴기
+                </label>
+                <p class="field-help">카드·책·액자처럼 네모난 물체를 비스듬히 찍었을 때 정면에서 본 직사각형으로 맞춰요.</p>
             </div>
 
             <div class="field" id="paddingField">

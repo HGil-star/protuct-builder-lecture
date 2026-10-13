@@ -170,30 +170,6 @@ function distance(a, b) {
     return Math.hypot(a[0] - b[0], a[1] - b[1]);
 }
 
-// 결과 사각형의 점 → 원본 사진의 점으로 바꾸는 변환(호모그래피) 계산
-function solveHomography(from, to) {
-    const A = [];
-    for (let i = 0; i < 4; i++) {
-        const X = from[i][0], Y = from[i][1], x = to[i][0], y = to[i][1];
-        A.push([X, Y, 1, 0, 0, 0, -x * X, -x * Y, x]);
-        A.push([0, 0, 0, X, Y, 1, -y * X, -y * Y, y]);
-    }
-    // 가우스 소거법
-    for (let col = 0; col < 8; col++) {
-        let pivot = col;
-        for (let r = col + 1; r < 8; r++) {
-            if (Math.abs(A[r][col]) > Math.abs(A[pivot][col])) pivot = r;
-        }
-        [A[col], A[pivot]] = [A[pivot], A[col]];
-        for (let r = 0; r < 8; r++) {
-            if (r === col) continue;
-            const f = A[r][col] / A[col][col];
-            for (let c = col; c < 9; c++) A[r][c] -= f * A[col][c];
-        }
-    }
-    return A.map(function (row, i) { return row[8] / row[i]; });
-}
-
 // 비스듬한 영수증을 반듯한 직사각형으로 펴기
 function warpReceipt(source, corners, outW, outH) {
     const sw = source.width;
@@ -206,7 +182,7 @@ function warpReceipt(source, corners, outW, outH) {
     const outData = ctx.createImageData(outW, outH);
     const dst = outData.data;
 
-    const H = solveHomography([[0, 0], [outW, 0], [outW, outH], [0, outH]], corners);
+    const H = ImageKit.solveHomography([[0, 0], [outW, 0], [outW, outH], [0, outH]], corners);
 
     for (let y = 0; y < outH; y++) {
         for (let x = 0; x < outW; x++) {

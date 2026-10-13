@@ -336,6 +336,202 @@ const ImageKit = (function () {
         return out;
     }
 
+    /* ========== 기울어진 직사각형 펴기 ========== */
+
+    // 결과 사각형의 점 → 원본의 점으로 바꾸는 변환(호모그래피) 계산
+    function solveHomography(from, to) {
+        const A = [];
+        for (let i = 0; i < 4; i++) {
+            const X = from[i][0], Y = from[i][1], x = to[i][0], y = to[i][1];
+            A.push([X, Y, 1, 0, 0, 0, -x * X, -x * Y, x]);
+            A.push([0, 0, 0, X, Y, 1, -y * X, -y * Y, y]);
+        }
+        // 가우스 소거법
+        for (let col = 0; col < 8; col++) {
+            let pivot = col;
+            for (let r = col + 1; r < 8; r++) {
+                if (Math.abs(A[r][col]) > Math.abs(A[pivot][col])) pivot = r;
+            }
+            [A[col], A[pivot]] = [A[pivot], A[col]];
+            for (let r = 0; r < 8; r++) {
+                if (r === col) continue;
+                const f = A[r][col] / A[col][col];
+                for (let c = col; c < 9; c++) A[r][c] -= f * A[col][c];
+            }
+        }
+        return A.map(function (row, i) { return row[8] / row[i]; });
+    }
+
+    function cross(o, a, b) {
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+    }
+
+    function triangleArea(a, b, c) {
+        return Math.abs(cross(a, b, c)) / 2;
+    }
+
+    function polygonArea(points) {
+        let area = 0;
+        for (let i = 0; i < points.length; i++) {
+            const a = points[i];
+            const b = points[(i + 1) % points.length];
+            area += a[0] * b[1] - b[0] * a[1];
+        }
+        return area / 2; // 화면 좌표(y 아래)에서 시계 방향이면 양수
+    }
+
+    // 두 직선 (a1-a2), (b1-b2)의 교점 (평행하면 null)
+    function lineIntersection(a1, a2, b1, b2) {
+        const d = (a2[0] - a1[0]) * (b2[1] - b1[1]) - (a2[1] - a1[1]) * (b2[0] - b1[0]);
+        if (Math.abs(d) < 1e-9) return null;
+        const t = ((b1[0] - a1[0]) * (b2[1] - b1[1]) - (b1[1] - a1[1]) * (b2[0] - b1[0])) / d;
+        return [a1[0] + t * (a2[0] - a1[0]), a1[1] + t * (a2[1] - a1[1])];
+    }
+
+    // 물체(불투명 부분)를 감싸는 사각형의 네 꼭짓점 [좌상, 우상, 우하, 좌하] (직사각형 모양이 아니면 null)
+    function findObjectQuad(canvas) {
+        const w = canvas.width;
+        const h = canvas.height;
+        const data = getPixels(canvas).data;
+
+        // 줄마다 가장 왼쪽·오른쪽 픽셀만 모아도 볼록 껍질은 같음
+        const points = [];
+        let filled = 0;
+        for (let y = 0; y < h; y++) {
+            let left = -1, right = -1;
+            for (let x = 0; x < w; x++) {
+                if (data[(y * w + x) * 4 + 3] >= 128) {
+                    if (left < 0) left = x;
+                    right = x;
+                    filled++;
+                }
+            }
+            if (left >= 0) {
+                points.push([left, y], [right + 1, y], [left, y + 1], [right + 1, y + 1]);
+            }
+        }
+        if (points.length < 8) return null;
+
+        // 볼록 껍질 (모노톤 체인)
+        points.sort(function (a, b) { return a[0] - b[0] || a[1] - b[1]; });
+        const lower = [];
+        const upper = [];
+        for (let i = 0; i < points.length; i++) {
+            while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], points[i]) <= 0) lower.pop();
+            lower.push(points[i]);
+        }
+        for (let i = points.length - 1; i >= 0; i--) {
+            while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], points[i]) <= 0) upper.pop();
+            upper.push(points[i]);
+        }
+        let hull = lower.slice(0, -1).concat(upper.slice(0, -1));
+        if (polygonArea(hull) < 0) hull.reverse();
+        if (hull.length < 4) return null;
+
+        // 변 하나를 없애고 양옆 변을 늘려 만나게 하기를 반복 → 껍질을 감싸는 사각형
+        // (둥근 모서리도 바깥 꼭짓점으로 잡힘) 늘어나는 넓이가 가장 작은 변부터 없앰
+        while (hull.length > 4) {
+            const n = hull.length;
+            let best = -1, bestArea = Infinity, bestPoint = null;
+            for (let i = 0; i < n; i++) {
+                const p0 = hull[(i - 1 + n) % n], p1 = hull[i], p2 = hull[(i + 1) % n], p3 = hull[(i + 2) % n];
+                const x = lineIntersection(p0, p1, p2, p3);
+                // 교점이 변의 바깥쪽에 있어야 감싸는 모양이 됨
+                if (!x || cross(p1, p2, x) > 0) continue;
+                const added = triangleArea(p1, x, p2);
+                if (added < bestArea) { bestArea = added; best = i; bestPoint = x; }
+            }
+            if (best < 0) return null;
+            const next = [];
+            for (let j = 0; j < n; j++) {
+                if (j === best) next.push(bestPoint);
+                else if (j !== (best + 1) % n) next.push(hull[j]);
+            }
+            hull = next;
+        }
+
+        // 사각형이 물체를 너무 헐겁게 감싸면 직사각형 물체가 아님
+        const quadArea = polygonArea(hull);
+        if (quadArea <= 0 || filled / quadArea < 0.85) return null;
+
+        // 모서리가 직각에서 너무 벗어나면 (삼각형, 마름모 등) 직사각형 물체가 아님
+        for (let i = 0; i < 4; i++) {
+            const p = hull[(i + 3) % 4], q = hull[i], r = hull[(i + 1) % 4];
+            const ax = p[0] - q[0], ay = p[1] - q[1], bx = r[0] - q[0], by = r[1] - q[1];
+            const cos = (ax * bx + ay * by) / (Math.hypot(ax, ay) * Math.hypot(bx, by));
+            if (Math.abs(cos) > 0.7) return null; // 약 45° ~ 135° 밖
+        }
+        // 마주 보는 변의 길이가 너무 다르면 (삼각형처럼 한 변이 아주 짧으면) 아님
+        for (let i = 0; i < 2; i++) {
+            const a = Math.hypot(hull[i + 1][0] - hull[i][0], hull[i + 1][1] - hull[i][1]);
+            const b = Math.hypot(hull[(i + 3) % 4][0] - hull[i + 2][0], hull[(i + 3) % 4][1] - hull[i + 2][1]);
+            if (Math.min(a, b) < Math.max(a, b) * 0.5) return null;
+        }
+
+        // x+y가 가장 작은 점을 좌상으로 두고 시계 방향 정렬
+        let start = 0;
+        for (let i = 1; i < 4; i++) {
+            if (hull[i][0] + hull[i][1] < hull[start][0] + hull[start][1]) start = i;
+        }
+        return hull.slice(start).concat(hull.slice(0, start));
+    }
+
+    // 비스듬히 찍힌 직사각형 물체를 반듯한 직사각형으로 펴기 (못 찾으면 null)
+    function straightenRect(source) {
+        const corners = findObjectQuad(source);
+        if (!corners) return null;
+
+        function dist(a, b) { return Math.hypot(a[0] - b[0], a[1] - b[1]); }
+        let outW = Math.max(dist(corners[0], corners[1]), dist(corners[3], corners[2]));
+        let outH = Math.max(dist(corners[0], corners[3]), dist(corners[1], corners[2]));
+        const k = Math.min(1, MAX_SOURCE_SIZE / Math.max(outW, outH));
+        outW = Math.max(1, Math.round(outW * k));
+        outH = Math.max(1, Math.round(outH * k));
+
+        const sw = source.width;
+        const sh = source.height;
+        const src = getPixels(source).data;
+        const out = createCanvas(outW, outH);
+        const ctx = out.getContext("2d");
+        const outData = ctx.createImageData(outW, outH);
+        const dst = outData.data;
+        const H = solveHomography([[0, 0], [outW, 0], [outW, outH], [0, outH]], corners);
+
+        function px(x, y, c) {
+            if (x < 0 || y < 0 || x >= sw || y >= sh) return 0;
+            const i = (y * sw + x) * 4;
+            return c === 3 ? src[i + 3] : src[i + c] * src[i + 3] / 255; // 투명 테두리가 검게 번지지 않게
+        }
+
+        for (let y = 0; y < outH; y++) {
+            for (let x = 0; x < outW; x++) {
+                const X = x + 0.5;
+                const Y = y + 0.5;
+                const d = H[6] * X + H[7] * Y + 1;
+                const sx = (H[0] * X + H[1] * Y + H[2]) / d - 0.5;
+                const sy = (H[3] * X + H[4] * Y + H[5]) / d - 0.5;
+                const x0 = Math.floor(sx), y0 = Math.floor(sy);
+                const fx = sx - x0, fy = sy - y0;
+                const o = (y * outW + x) * 4;
+                const v = [0, 0, 0, 0];
+                for (let c = 0; c < 4; c++) {
+                    const top = px(x0, y0, c) + (px(x0 + 1, y0, c) - px(x0, y0, c)) * fx;
+                    const bottom = px(x0, y0 + 1, c) + (px(x0 + 1, y0 + 1, c) - px(x0, y0 + 1, c)) * fx;
+                    v[c] = top + (bottom - top) * fy;
+                }
+                const a = v[3];
+                if (a > 0) {
+                    dst[o] = v[0] * 255 / a;
+                    dst[o + 1] = v[1] * 255 / a;
+                    dst[o + 2] = v[2] * 255 / a;
+                    dst[o + 3] = a;
+                }
+            }
+        }
+        ctx.putImageData(outData, 0, 0);
+        return out;
+    }
+
     /* ========== 저장 ========== */
 
     async function downloadPng(canvas, filename) {
@@ -419,6 +615,19 @@ const ImageKit = (function () {
             pick(event.dataTransfer.files);
         });
 
+        // 올리기 칸 밖(미리보기 등)에 놓아도 브라우저가 사진을 열고 페이지를 떠나지 않고 그대로 받기
+        function hasFiles(event) {
+            return Array.from((event.dataTransfer && event.dataTransfer.types) || []).indexOf("Files") >= 0;
+        }
+        window.addEventListener("dragover", function (event) {
+            if (!event.defaultPrevented && hasFiles(event)) event.preventDefault();
+        });
+        window.addEventListener("drop", function (event) {
+            if (event.defaultPrevented || !hasFiles(event)) return;
+            event.preventDefault();
+            pick(event.dataTransfer.files);
+        });
+
         document.addEventListener("paste", function (event) {
             pick(event.clipboardData && event.clipboardData.files);
         });
@@ -460,6 +669,8 @@ const ImageKit = (function () {
         removeBackgroundColor: removeBackgroundColor,
         removeSpecks: removeSpecks,
         trimTransparent: trimTransparent,
+        solveHomography: solveHomography,
+        straightenRect: straightenRect,
         downloadPng: downloadPng,
         baseName: baseName,
         setupTheme: setupTheme,
