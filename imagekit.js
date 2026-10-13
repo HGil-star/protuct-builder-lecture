@@ -477,8 +477,9 @@ const ImageKit = (function () {
     }
 
     // 비스듬히 찍힌 직사각형 물체를 반듯한 직사각형으로 펴기 (못 찾으면 null)
-    function straightenRect(source) {
-        const corners = findObjectQuad(source);
+    // mask를 주면 그 불투명 부분으로 모서리를 찾고, 픽셀은 source에서 가져옴 (배경 지우기 전 사진 그대로 펴기)
+    function straightenRect(source, mask) {
+        const corners = findObjectQuad(mask || source);
         if (!corners) return null;
 
         function dist(a, b) { return Math.hypot(a[0] - b[0], a[1] - b[1]); }

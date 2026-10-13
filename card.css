@@ -88,7 +88,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
 }
-.shape-item input[type="color"] { width: 36px; height: 26px; flex-shrink: 0; }
+.shape-item .shape-color { width: 30px; height: 24px; padding: 0; flex-shrink: 0; border: 1px solid var(--line); border-radius: 6px; }
 
 .select-note { color: #03b75a; font-weight: 500; }
 
@@ -120,12 +120,11 @@
 .selection-label { font-size: 13px; font-weight: 700; }
 .selection-color .swatches { gap: 6px; }
 .selection-color .swatches button { width: 26px; height: 26px; border-width: 2px; }
-.selection-color .swatches input[type="color"] { width: 34px; height: 26px; }
 button.link-button { padding: 4px 6px; font-size: 12px; font-weight: 500; color: var(--muted); background: transparent; text-decoration: underline; }
 
 .size-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; }
 @media (max-width: 520px) { .size-grid { grid-template-columns: minmax(0, 1fr); } }
-.size-row { display: grid; grid-template-columns: 48px 32px minmax(0, 1fr) 32px 26px; align-items: center; gap: 4px; font-size: 13px; }
+.size-row { display: grid; grid-template-columns: 60px 32px minmax(0, 1fr) 32px 26px; align-items: center; gap: 4px; font-size: 13px; }
 .size-row span:first-child { font-weight: 700; }
 .size-row button { padding: 0; height: 34px; font-size: 16px; }
 .size-row .text-input { min-height: 34px; padding: 4px 6px; font-size: 14px; text-align: center; background: var(--card); }
@@ -134,4 +133,66 @@ button.link-button { padding: 4px 6px; font-size: 12px; font-weight: 500; color:
 /* 색 버튼이 많아서 작게 */
 .controls .swatches { gap: 6px; }
 .controls .swatches button { width: 26px; height: 26px; border-width: 2px; }
-.controls .swatches input[type="color"] { width: 34px; height: 26px; }
+
+/* 색상표 버튼 (무지개 동그라미, 고른 색이 있으면 가운데에) */
+.swatches button.more-colors {
+    background:
+        radial-gradient(circle, var(--picked, transparent) 0 42%, transparent 44%),
+        conic-gradient(#ef4444, #f59e0b, #eab308, #22c55e, #06b6d4, #3b82f6, #8b5cf6, #ec4899, #ef4444);
+}
+
+/* 내 명함 사진으로 시작하기 */
+.import-field { padding-bottom: 18px; border-bottom: 1px solid var(--line); }
+.import-options { display: flex; flex-direction: column; gap: 8px; }
+.import-field .status { margin-top: 0; font-size: 13px; }
+
+/* 고른 글자 내용·굵게 */
+.selection-text { display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; gap: 8px; }
+.selection-text .text-input { min-height: 36px; padding: 6px 10px; font-size: 14px; background: var(--card); }
+.bold-check { font-size: 13px; }
+
+/* 색상표 창 */
+.color-pop {
+    position: fixed;
+    z-index: 30;
+    width: 300px;
+    max-width: calc(100vw - 16px);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px;
+    color: var(--text);
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.22);
+}
+.cp-sv { position: relative; height: 150px; border-radius: 8px; cursor: crosshair; touch-action: none; }
+.cp-knob {
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    margin: -8px 0 0 -8px;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+    pointer-events: none;
+}
+.cp-hue {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 14px;
+    border-radius: 999px;
+    background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+}
+.cp-hue::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #fff; border: 2px solid #555; }
+.cp-hue::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: #fff; border: 2px solid #555; }
+.cp-values { display: grid; grid-template-columns: 30px 1.6fr 1fr 1fr 1fr; align-items: end; gap: 6px; }
+.cp-values label { display: flex; flex-direction: column; gap: 2px; font-size: 11px; color: var(--muted); }
+.cp-values .text-input { min-height: 30px; padding: 4px 6px; font-size: 13px; }
+.cp-preview { width: 30px; height: 30px; border-radius: 6px; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15); }
+.cp-grid, .cp-recent { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 3px; }
+.cp-grid button, .cp-recent button { aspect-ratio: 1; padding: 0; border: 0; border-radius: 3px; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.1); }
+.cp-grid button:hover, .cp-recent button:hover { transform: scale(1.25); box-shadow: 0 0 0 2px #03b75a; }
+.cp-recent-wrap { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--muted); }
+button.cp-done { padding: 9px; font-size: 14px; }

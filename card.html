@@ -38,8 +38,8 @@
     <section class="hero">
         <h1>명함 만들기</h1>
         <p>
-            테두리 양식을 고르고 로고와 연락처를 넣으면 제자리에 알아서 배치해요.
-            미리보기에서 로고나 글자를 끌어서 위치를 바꿀 수 있고, 90 × 50mm 인쇄용 PNG(300dpi)로 저장해요.
+            테두리 양식을 고르고 로고와 연락처를 넣으면 제자리에 알아서 배치해요. 가지고 있는 명함 사진을 올리면 비슷하게 다시 만들어 줘요.
+            회사명·이름·직급·연락처 하나하나를 끌어서 옮기고 크기·색을 바꿀 수 있고, 90 × 50mm 인쇄용 PNG(300dpi)로 저장해요.
             모든 작업은 내 브라우저 안에서만 이루어져요.
         </p>
     </section>
@@ -49,6 +49,29 @@
         <!-- 설정 -->
         <section class="panel controls">
 
+            <!-- 명함 사진으로 시작 -->
+            <div class="field import-field">
+                <span class="field-label">내 명함 사진으로 시작하기 <span class="optional">(선택)</span></span>
+                <label class="dropzone logo-drop" id="importDrop">
+                    <input type="file" id="importInput" accept="image/*" hidden>
+                    <strong>명함 사진·스캔 올리기</strong>
+                    <span>클릭하거나 여기에 끌어다 놓기</span>
+                </label>
+                <p class="field-help">글자를 읽어 이름·연락처 칸을 채우고, 원래 자리·크기·색으로 배치해요. 처음 한 번은 글자 인식 자료(약 10MB)를 내려받아요.</p>
+                <div class="status" id="importStatus" hidden>
+                    <span id="importStatusText"></span>
+                    <div class="progress"><div id="importProgress"></div></div>
+                </div>
+                <div class="import-options" id="importOptions" hidden>
+                    <div class="file-list" id="importFile"></div>
+                    <label class="check"><input type="checkbox" id="refShow" checked> 원본을 겹쳐 보기 (저장할 땐 빠져요)</label>
+                    <label class="field-label" for="refOpacity">겹쳐 보기 진하기 <output id="refOpacityValue">35%</output></label>
+                    <input type="range" id="refOpacity" min="10" max="90" value="35">
+                    <button type="button" class="secondary" id="cropLogoButton">원본에서 로고 영역 잘라오기</button>
+                    <p class="field-help" id="cropHelp" hidden>미리보기에서 로고를 감싸도록 끌어서 네모를 그리세요. (Esc로 취소)</p>
+                </div>
+            </div>
+
             <!-- 1. 양식 -->
             <div class="field">
                 <span class="field-label">1. 테두리 양식</span>
@@ -57,14 +80,14 @@
             <div class="field">
                 <span class="field-label">주 색상</span>
                 <div class="swatches" id="mainColors">
-                    <input type="color" id="mainCustom" value="#2563eb" aria-label="주 색상 직접 고르기">
+                    <button type="button" class="more-colors" id="mainCustom" aria-label="주 색상 색상표에서 고르기" title="색상표에서 고르기"></button>
                 </div>
                 <p class="field-help select-note" id="mainColorNote" hidden></p>
             </div>
             <div class="field">
                 <span class="field-label">보조 색상</span>
                 <div class="swatches" id="subColors">
-                    <input type="color" id="subCustom" value="#facc15" aria-label="보조 색상 직접 고르기">
+                    <button type="button" class="more-colors" id="subCustom" aria-label="보조 색상 색상표에서 고르기" title="색상표에서 고르기"></button>
                 </div>
             </div>
             <div class="field">
@@ -84,6 +107,7 @@
                     <button type="button" data-value="circle">＋ 원</button>
                     <button type="button" data-value="line">＋ 선</button>
                     <button type="button" data-value="triangle">＋ 삼각형</button>
+                    <button type="button" data-value="text">＋ 글자</button>
                 </div>
                 <div class="shape-list" id="shapeList"></div>
                 <p class="field-help">아래 목록에는 양식의 테두리·띠·원 같은 장식도 들어 있어요. 목록이나 미리보기에서 눌러 고르면 색·크기·위치(mm)를 바꾸거나 지울 수 있고, Ctrl+C / Ctrl+V로 복사할 수 있어요.</p>
@@ -106,7 +130,7 @@
                     <label class="field-label" for="logoSize">
                         로고 크기 <output id="logoSizeValue">100%</output>
                     </label>
-                    <input type="range" id="logoSize" min="30" max="250" value="100">
+                    <input type="range" id="logoSize" min="10" max="400" value="100">
                 </div>
             </div>
 
@@ -149,7 +173,7 @@
             <div class="card-stage">
                 <canvas id="cardCanvas" tabindex="0" aria-label="명함 미리보기. 로고나 글자를 끌어서 옮길 수 있어요"></canvas>
             </div>
-            <p class="field-help stage-help">로고·회사명·이름·연락처·도형을 눌러서 고르고 끌어서 옮겨요. 방향키로 조금씩(Shift는 1mm씩), Esc로 선택 해제.</p>
+            <p class="field-help stage-help">로고·회사명·부서·이름·직급·연락처 한 줄 한 줄·도형을 눌러서 고르고 끌어서 옮겨요. 모서리 손잡이로 크기를 바꾸고, 방향키로 조금씩(Shift는 1mm씩), Esc로 선택 해제.</p>
 
             <!-- 고른 객체 편집 -->
             <div class="selection-bar" id="selectionBar" hidden>
@@ -162,11 +186,16 @@
                         <button type="button" id="deselectButton" title="선택 해제 (Esc)">선택 해제</button>
                     </div>
                 </div>
+                <label class="selection-text" id="selectionText" hidden>
+                    <span class="selection-label">내용</span>
+                    <input type="text" class="text-input" id="selectionTextInput">
+                </label>
                 <div class="selection-color" id="selectionColor">
                     <span class="selection-label">색</span>
                     <div class="swatches" id="selColors">
-                    <input type="color" id="selCustom" value="#1f3a8a" aria-label="고른 객체 색 직접 고르기">
+                    <button type="button" class="more-colors" id="selCustom" aria-label="고른 객체 색을 색상표에서 고르기" title="색상표에서 고르기"></button>
                     </div>
+                    <label class="check bold-check" id="boldCheckWrap" hidden><input type="checkbox" id="boldCheck"> 굵게</label>
                     <button type="button" class="link-button" id="colorResetButton">기본 색으로</button>
                 </div>
                 <div class="size-grid" id="sizeGrid"></div>
@@ -177,6 +206,22 @@
     </main>
 
     <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+    <!-- 색상표 (색 고르기 창) -->
+    <div class="color-pop" id="colorPop" role="dialog" aria-label="색상표" hidden>
+        <div class="cp-sv" id="cpSv" aria-label="채도와 밝기"><span class="cp-knob" id="cpKnob"></span></div>
+        <input type="range" class="cp-hue" id="cpHue" min="0" max="360" value="220" aria-label="색상">
+        <div class="cp-values">
+            <span class="cp-preview" id="cpPreview"></span>
+            <label>HEX <input type="text" class="text-input" id="cpHex" maxlength="7" spellcheck="false"></label>
+            <label>R <input type="number" class="text-input" id="cpR" min="0" max="255"></label>
+            <label>G <input type="number" class="text-input" id="cpG" min="0" max="255"></label>
+            <label>B <input type="number" class="text-input" id="cpB" min="0" max="255"></label>
+        </div>
+        <div class="cp-grid" id="cpGrid"></div>
+        <div class="cp-recent-wrap"><span>최근 쓴 색</span><div class="cp-recent" id="cpRecent"></div></div>
+        <button type="button" class="primary cp-done" id="cpDone">확인</button>
+    </div>
 
     <script src="imagekit.js"></script>
     <script src="card.js"></script>
