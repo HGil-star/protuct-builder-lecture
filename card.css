@@ -130,3 +130,8 @@ button.link-button { padding: 4px 6px; font-size: 12px; font-weight: 500; color:
 .size-row button { padding: 0; height: 34px; font-size: 16px; }
 .size-row .text-input { min-height: 34px; padding: 4px 6px; font-size: 14px; text-align: center; background: var(--card); }
 .size-unit { color: var(--muted); font-size: 12px; }
+
+/* 색 버튼이 많아서 작게 */
+.controls .swatches { gap: 6px; }
+.controls .swatches button { width: 26px; height: 26px; border-width: 2px; }
+.controls .swatches input[type="color"] { width: 34px; height: 26px; }

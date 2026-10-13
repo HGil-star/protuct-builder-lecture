@@ -47,11 +47,23 @@ const LANG_HELP = {
     custom: "항목 이름을 원하는 대로 고쳐 쓰세요. 비우면 이름 없이 내용만 나와요."
 };
 
+// 색 고르기 버튼 (진한 색 → 밝은 색)
+const PALETTE = [
+    ["#111827", "먹색"], ["#374151", "차콜"], ["#6b7280", "회색"], ["#94a3b8", "은색"],
+    ["#1e3a8a", "남색"], ["#1d4ed8", "파랑"], ["#0369a1", "바다"], ["#4338ca", "인디고"],
+    ["#0f766e", "청록"], ["#15803d", "초록"], ["#4d7c0f", "올리브"], ["#a16207", "겨자"],
+    ["#c9a227", "금색"], ["#78350f", "갈색"], ["#c2410c", "주황"], ["#b91c1c", "빨강"],
+    ["#9f1239", "와인"], ["#be185d", "자홍"], ["#6d28d9", "보라"], ["#93c5fd", "하늘"],
+    ["#bfdbfe", "연하늘"], ["#5eead4", "민트"], ["#bbf7d0", "연두"], ["#fde68a", "레몬"],
+    ["#fed7aa", "살구"], ["#fca5a5", "분홍"], ["#fbcfe8", "연분홍"], ["#ddd6fe", "라벤더"],
+    ["#e5e7eb", "연회색"], ["#f5f0e6", "아이보리"]
+];
+
 /* ========== 상태 ========== */
 
 const state = {
     template: "line",
-    main: "#1f3a8a",
+    main: "#1e3a8a",
     sub: "#93c5fd",
     font: "sans",
     lang: "ko",
@@ -92,136 +104,113 @@ function roundRectPath(ctx, x, y, w, h, r) {
     ctx.closePath();
 }
 
+// 양식 장식은 고칠 수 있는 객체 목록으로 정의 (색 "main"/"sub"는 주·보조 색상을 따라감)
+// 객체: { type, name, color, x, y, w, h, stroke(테두리 굵기, 0이면 채움), radius, points(0~1 비율 좌표) }
+function deco(type, name, color, x, y, w, h, extra) {
+    return Object.assign({ type: type, name: name, color: color, x: x, y: y, w: w, h: h, stroke: 0, radius: 0 }, extra || {});
+}
+const CORNER_POINTS = {
+    nw: [[1, 0], [0, 0], [0, 1]], ne: [[0, 0], [1, 0], [1, 1]],
+    se: [[1, 0], [1, 1], [0, 1]], sw: [[0, 0], [0, 1], [1, 1]]
+};
+
 // pad: 글자를 놓을 안쪽 여백 [위, 오른쪽, 아래, 왼쪽], align: 글자 정렬
 const TEMPLATES = [
-    {
-        id: "plain", name: "기본", align: "left", pad: [60, 60, 56, 64],
-        draw: function () {}
-    },
+    { id: "plain", name: "기본", align: "left", pad: [60, 60, 56, 64], deco: function () { return []; } },
     {
         id: "line", name: "얇은 테두리", align: "left", pad: [62, 64, 58, 66],
-        draw: function (ctx, c) {
-            ctx.strokeStyle = c.main;
-            ctx.lineWidth = 3;
-            ctx.strokeRect(22, 22, W - 44, H - 44);
-        }
+        deco: function () { return [deco("rect", "테두리", "main", 22, 22, W - 44, H - 44, { stroke: 3 })]; }
     },
     {
         id: "double", name: "이중 테두리", align: "left", pad: [66, 70, 62, 72],
-        draw: function (ctx, c) {
-            ctx.strokeStyle = c.main;
-            ctx.lineWidth = 5;
-            ctx.strokeRect(16, 16, W - 32, H - 32);
-            ctx.strokeStyle = c.sub;
-            ctx.lineWidth = 2;
-            ctx.strokeRect(30, 30, W - 60, H - 60);
+        deco: function () {
+            return [
+                deco("rect", "바깥 테두리", "main", 16, 16, W - 32, H - 32, { stroke: 5 }),
+                deco("rect", "안쪽 테두리", "sub", 30, 30, W - 60, H - 60, { stroke: 2 })
+            ];
         }
     },
     {
         id: "rounded", name: "둥근 테두리", align: "left", pad: [64, 66, 60, 68],
-        draw: function (ctx, c) {
-            ctx.strokeStyle = c.main;
-            ctx.lineWidth = 4;
-            roundRectPath(ctx, 22, 22, W - 44, H - 44, 36);
-            ctx.stroke();
-        }
+        deco: function () { return [deco("rect", "둥근 테두리", "main", 22, 22, W - 44, H - 44, { stroke: 4, radius: 36 })]; }
     },
     {
         id: "leftbar", name: "왼쪽 띠", align: "left", pad: [58, 60, 54, 92],
-        draw: function (ctx, c) {
-            ctx.fillStyle = c.main;
-            ctx.fillRect(0, 0, 30, H);
-            ctx.fillStyle = c.sub;
-            ctx.fillRect(30, 0, 9, H);
+        deco: function () {
+            return [deco("rect", "왼쪽 띠", "main", 0, 0, 30, H), deco("rect", "보조 띠", "sub", 30, 0, 9, H)];
         }
     },
     {
         id: "bottomband", name: "아래 띠", align: "left", pad: [50, 60, 82, 64],
-        draw: function (ctx, c) {
-            ctx.fillStyle = c.sub;
-            ctx.fillRect(0, H - 46, W, 8);
-            ctx.fillStyle = c.main;
-            ctx.fillRect(0, H - 38, W, 38);
+        deco: function () {
+            return [deco("rect", "보조 띠", "sub", 0, H - 46, W, 8), deco("rect", "아래 띠", "main", 0, H - 38, W, 38)];
         }
     },
     {
         id: "topbottom", name: "위·아래 선", align: "left", pad: [60, 60, 56, 64],
-        draw: function (ctx, c) {
-            ctx.fillStyle = c.main;
-            ctx.fillRect(0, 0, W, 14);
-            ctx.fillRect(0, H - 14, W, 14);
-            ctx.fillStyle = c.sub;
-            ctx.fillRect(0, 14, W, 4);
-            ctx.fillRect(0, H - 18, W, 4);
+        deco: function () {
+            return [
+                deco("rect", "위 선", "main", 0, 0, W, 14), deco("rect", "위 보조 선", "sub", 0, 14, W, 4),
+                deco("rect", "아래 보조 선", "sub", 0, H - 18, W, 4), deco("rect", "아래 선", "main", 0, H - 14, W, 14)
+            ];
         }
     },
     {
         id: "corners", name: "모서리 장식", align: "left", pad: [64, 66, 60, 68],
-        draw: function (ctx, c) {
+        deco: function () {
             const m = 24, len = 72;
-            ctx.strokeStyle = c.main;
-            ctx.lineWidth = 5;
-            ctx.lineCap = "square";
-            [[m, m, 1, 1], [W - m, m, -1, 1], [W - m, H - m, -1, -1], [m, H - m, 1, -1]].forEach(function (p) {
-                ctx.beginPath();
-                ctx.moveTo(p[0] + len * p[2], p[1]);
-                ctx.lineTo(p[0], p[1]);
-                ctx.lineTo(p[0], p[1] + len * p[3]);
-                ctx.stroke();
-            });
-            ctx.lineCap = "butt";
+            return [
+                deco("polyline", "왼쪽 위 모서리", "main", m, m, len, len, { stroke: 5, points: CORNER_POINTS.nw }),
+                deco("polyline", "오른쪽 위 모서리", "main", W - m - len, m, len, len, { stroke: 5, points: CORNER_POINTS.ne }),
+                deco("polyline", "오른쪽 아래 모서리", "main", W - m - len, H - m - len, len, len, { stroke: 5, points: CORNER_POINTS.se }),
+                deco("polyline", "왼쪽 아래 모서리", "main", m, H - m - len, len, len, { stroke: 5, points: CORNER_POINTS.sw })
+            ];
         }
     },
     {
         id: "corner-tri", name: "사선 포인트", align: "left", pad: [60, 60, 56, 64],
-        draw: function (ctx, c) {
-            ctx.fillStyle = c.sub;
-            ctx.beginPath();
-            ctx.moveTo(W - 330, H);
-            ctx.lineTo(W, H - 210);
-            ctx.lineTo(W, H);
-            ctx.fill();
-            ctx.fillStyle = c.main;
-            ctx.beginPath();
-            ctx.moveTo(W - 200, H);
-            ctx.lineTo(W, H - 128);
-            ctx.lineTo(W, H);
-            ctx.fill();
+        deco: function () {
+            const tri = [[0, 1], [1, 0], [1, 1]];
+            return [
+                deco("poly", "큰 사선", "sub", W - 330, H - 210, 330, 210, { points: tri }),
+                deco("poly", "작은 사선", "main", W - 200, H - 128, 200, 128, { points: tri })
+            ];
         }
     },
     {
         id: "circles", name: "원 포인트", align: "left", pad: [60, 230, 56, 64],
-        draw: function (ctx, c) {
-            ctx.fillStyle = c.sub;
-            ctx.beginPath();
-            ctx.arc(W + 30, H * 0.5, 230, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = c.main;
-            ctx.beginPath();
-            ctx.arc(W + 40, H * 0.5, 160, 0, Math.PI * 2);
-            ctx.fill();
+        deco: function () {
+            return [
+                deco("circle", "큰 원", "sub", W + 30 - 230, H / 2 - 230, 460, 460),
+                deco("circle", "작은 원", "main", W + 40 - 160, H / 2 - 160, 320, 320)
+            ];
         }
     },
     {
         id: "center", name: "가운데 정렬", align: "center", pad: [44, 60, 44, 60],
-        draw: function (ctx, c) {
-            ctx.strokeStyle = c.sub;
-            ctx.lineWidth = 2;
-            ctx.strokeRect(20, 20, W - 40, H - 40);
-            ctx.fillStyle = c.main;
-            ctx.fillRect(W / 2 - 30, H - 34, 60, 6);
+        deco: function () {
+            return [
+                deco("rect", "테두리", "sub", 20, 20, W - 40, H - 40, { stroke: 2 }),
+                deco("rect", "아래 포인트", "main", W / 2 - 30, H - 34, 60, 6)
+            ];
         }
     },
     {
         id: "right", name: "오른쪽 정렬", align: "right", pad: [60, 66, 56, 60],
-        draw: function (ctx, c) {
-            ctx.fillStyle = c.main;
-            ctx.fillRect(0, 0, 14, H);
-            ctx.fillStyle = c.sub;
-            ctx.fillRect(66, H / 2 - 1, 120, 3);
+        deco: function () {
+            return [deco("rect", "왼쪽 선", "main", 0, 0, 14, H), deco("rect", "가운데 선", "sub", 66, H / 2 - 1, 120, 3)];
         }
     }
 ];
+
+// 지금 양식의 장식을 고칠 수 있는 객체로 (직접 더한 도형은 그 위에 그대로)
+function applyTemplateDeco() {
+    const own = state.shapes.filter(function (sh) { return !sh.deco; });
+    const decos = findTemplate(state.template).deco().map(function (d) {
+        return Object.assign(d, { id: ++shapeSeq, deco: true, baseColor: d.color });
+    });
+    state.shapes = decos.concat(own);
+}
 
 function findTemplate(id) {
     return TEMPLATES.find(function (t) { return t.id === id; }) || TEMPLATES[0];
@@ -339,39 +328,91 @@ function nameLines() {
     return lines;
 }
 
+function resolveColor(c) {
+    return c === "main" ? state.main : c === "sub" ? state.sub : c;
+}
+
+function shapePoints(s) {
+    if (s.points) return s.points;
+    if (s.type === "triangle") return [[0.5, 0], [1, 1], [0, 1]];
+    return null;
+}
+
 function drawShape(ctx, s) {
-    ctx.fillStyle = s.color;
-    if (s.type === "rect" || s.type === "line") {
-        ctx.fillRect(s.x, s.y, s.w, s.h);
-    } else if (s.type === "circle") {
+    const color = resolveColor(s.color);
+    const stroke = s.type === "line" ? 0 : s.stroke || 0;
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = stroke;
+    ctx.lineJoin = "miter";
+    ctx.lineCap = s.type === "polyline" ? "square" : "butt";
+    const pts = shapePoints(s);
+    if (s.type === "circle") {
         ctx.beginPath();
-        ctx.ellipse(s.x + s.w / 2, s.y + s.h / 2, s.w / 2, s.h / 2, 0, 0, Math.PI * 2);
-        ctx.fill();
-    } else if (s.type === "triangle") {
+        ctx.ellipse(s.x + s.w / 2, s.y + s.h / 2, Math.abs(s.w) / 2, Math.abs(s.h) / 2, 0, 0, Math.PI * 2);
+    } else if (pts) {
         ctx.beginPath();
-        ctx.moveTo(s.x + s.w / 2, s.y);
-        ctx.lineTo(s.x + s.w, s.y + s.h);
-        ctx.lineTo(s.x, s.y + s.h);
-        ctx.closePath();
-        ctx.fill();
+        pts.forEach(function (pt, i) {
+            const px = s.x + pt[0] * s.w, py = s.y + pt[1] * s.h;
+            if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py);
+        });
+        if (s.type !== "polyline") ctx.closePath();
+    } else if (s.radius) {
+        roundRectPath(ctx, s.x, s.y, s.w, s.h, Math.min(s.radius, s.w / 2, s.h / 2));
+    } else {
+        ctx.beginPath();
+        ctx.rect(s.x, s.y, s.w, s.h);
     }
+    if (stroke || s.type === "polyline") ctx.stroke();
+    else ctx.fill();
+    ctx.restore();
+}
+
+// 점이 도형 위에 있는지 (테두리만 있는 도형은 선 근처만, 큰 테두리가 빈 곳 클릭을 가로채지 않게)
+function shapeHit(s, p, tol) {
+    const stroke = s.type === "line" ? 0 : s.stroke || 0;
+    const half = stroke / 2 + tol;
+    if (p[0] < s.x - half || p[0] > s.x + s.w + half || p[1] < s.y - half || p[1] > s.y + s.h + half) return false;
+    if (s.type === "polyline") {
+        const pts = s.points.map(function (pt) { return [s.x + pt[0] * s.w, s.y + pt[1] * s.h]; });
+        for (let i = 1; i < pts.length; i++) {
+            if (segmentDistance(p, pts[i - 1], pts[i]) <= half) return true;
+        }
+        return false;
+    }
+    if (s.type === "circle") {
+        const rx = s.w / 2, ry = s.h / 2;
+        const d = Math.hypot((p[0] - s.x - rx) / rx, (p[1] - s.y - ry) / ry);
+        const band = half / Math.min(rx, ry);
+        return stroke ? Math.abs(d - 1) <= band : d <= 1 + band;
+    }
+    if (!stroke) return true;
+    // 테두리만: 안쪽 빈 곳은 제외
+    return !(p[0] > s.x + half && p[0] < s.x + s.w - half && p[1] > s.y + half && p[1] < s.y + s.h - half);
+}
+
+function segmentDistance(p, a, b) {
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const len = dx * dx + dy * dy;
+    const t = len ? Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len)) : 0;
+    return Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy);
 }
 
 // 명함 한 장 그리기 (설계 단위 W × H 좌표). 각 요소의 자리를 돌려줌
 function drawCard(ctx, templateId, useOffsets) {
     const t = findTemplate(templateId);
-    const colors = { main: state.main, sub: state.sub };
     const found = [];
 
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, W, H);
-    ctx.save();
-    t.draw(ctx, colors);
-    ctx.restore();
 
-    state.shapes.forEach(function (s) {
+    // 지금 양식은 고친 장식 그대로, 다른 양식(고르기 칸)은 그 양식의 기본 장식 + 직접 더한 도형
+    const shapes = templateId === state.template ? state.shapes
+        : t.deco().concat(state.shapes.filter(function (sh) { return !sh.deco; }));
+    shapes.forEach(function (s) {
         drawShape(ctx, s);
-        found.push({ key: "shape:" + s.id, x: s.x, y: s.y, w: s.w, h: s.h });
+        found.push({ key: "shape:" + s.id, x: s.x, y: s.y, w: s.w, h: s.h, shape: s });
     });
 
     const x0 = t.pad[3], y0 = t.pad[0], x1 = W - t.pad[1], y1 = H - t.pad[2];
@@ -533,6 +574,9 @@ function buildTemplateGrid() {
         if (!target) return;
         state.template = target.dataset.value;
         state.offsets = {}; // 양식마다 자리가 달라서 옮긴 위치는 처음대로
+        if (shapeOf() && shapeOf().deco) selected = null;
+        applyTemplateDeco();
+        buildShapeList();
         templateGrid.querySelectorAll("button").forEach(function (b) {
             b.classList.toggle("active", b === target);
             b.setAttribute("aria-pressed", b === target);
@@ -713,7 +757,7 @@ async function handleLogo(file) {
 
 /* ========== 도형 ========== */
 
-const SHAPE_NAMES = { rect: "사각형", circle: "원", line: "선", triangle: "삼각형" };
+const SHAPE_NAMES = { rect: "사각형", circle: "원", line: "선", triangle: "삼각형", poly: "다각형", polyline: "꺾은선" };
 const TEXT_NAMES = { logo: "로고", company: "회사명", name: "이름·직급·부서", info: "연락처" };
 const HANDLE_PX = 10;            // 크기 조절 손잡이 크기 (화면 px)
 const CLIP_MARK = "명함도형:";   // 클립보드에 넣는 도형 표시
@@ -742,7 +786,9 @@ function shapeOf(key) {
 }
 
 function shapeTitle(s) {
-    return SHAPE_NAMES[s.type] + " " + (state.shapes.indexOf(s) + 1);
+    if (s.name) return s.name;
+    const own = state.shapes.filter(function (sh) { return !sh.deco && !sh.name; });
+    return SHAPE_NAMES[s.type] + " " + (own.indexOf(s) + 1);
 }
 
 function selectedTitle() {
@@ -786,12 +832,18 @@ function copySelection() {
 // 붙여넣기: 원본보다 2mm씩 옆에 (다시 붙이면 또 2mm 옆에)
 function pasteShape(source) {
     if (!source || !SHAPE_NAMES[source.type]) return;
+    const num = function (v, d) { return isFinite(Number(v)) ? Number(v) : d; };
     const s = {
         id: ++shapeSeq, type: source.type, color: String(source.color || state.main),
-        w: Number(source.w) || 100, h: Number(source.h) || 100,
-        x: (Number(source.x) || 0) + 20, y: (Number(source.y) || 0) + 20
+        name: source.name ? String(source.name) + " 복사" : "",
+        w: num(source.w, 100), h: num(source.h, 100),
+        x: num(source.x, 0) + 20, y: num(source.y, 0) + 20,
+        stroke: num(source.stroke, 0), radius: num(source.radius, 0)
     };
-    if (s.x > W - 20 || s.y > H - 20) { s.x = Number(source.x) || 0; s.y = Number(source.y) || 0; }
+    if (Array.isArray(source.points)) {
+        s.points = source.points.map(function (pt) { return [num(pt[0], 0), num(pt[1], 0)]; });
+    }
+    if (s.x > W - 20 || s.y > H - 20) { s.x = num(source.x, 0); s.y = num(source.y, 0); }
     state.shapes.push(s);
     copied = Object.assign({}, s);
     pasteButton.disabled = false;
@@ -848,7 +900,7 @@ function buildShapeList() {
         title.addEventListener("click", function () { selectKey("shape:" + s.id); });
         const color = document.createElement("input");
         color.type = "color";
-        color.value = s.color;
+        color.value = resolveColor(s.color);
         color.setAttribute("aria-label", shapeTitle(s) + " 색");
         color.addEventListener("input", function () { s.color = color.value; render(); });
         const remove = document.createElement("button");
@@ -931,6 +983,15 @@ function buildSizeGrid() {
             sizeRow("X 위치", function () { return mm(s.x); }, function (v) { s.x = v * 10; }, 1, null, "mm"),
             sizeRow("Y 위치", function () { return mm(s.y); }, function (v) { s.y = v * 10; }, 1, null, "mm")
         );
+        if (!isLine) {
+            // 0이면 속을 채우고, 0보다 크면 그 굵기의 테두리만
+            rows.push(sizeRow(s.type === "polyline" ? "선 굵기" : "테두리", function () { return mm(s.stroke || 0); },
+                function (v) { s.stroke = v * 10; }, 0.1, s.type === "polyline" ? 0.1 : 0, "mm"));
+        }
+        if (s.type === "rect") {
+            rows.push(sizeRow("둥글기", function () { return mm(s.radius || 0); },
+                function (v) { s.radius = v * 10; }, 0.5, 0, "mm"));
+        }
     } else if (selected === "logo") {
         rows.push(sizeRow("크기", function () { return Math.round(state.logoScale * 100); },
             function (v) { setLogoScale(v / 100); }, 10, 30, "%"));
@@ -941,7 +1002,7 @@ function buildSizeGrid() {
 
 function currentColor() {
     const s = shapeOf();
-    if (s) return s.color;
+    if (s) return resolveColor(s.color);
     if (selected === "company") return state.textColors.company || state.main;
     return state.textColors[selected] || (selected === "info" ? state.main : TEXT_COLOR);
 }
@@ -961,7 +1022,7 @@ function syncSelectionBar() {
     const s = shapeOf();
     selectionName.textContent = "선택: " + selectedTitle();
     selectionColor.hidden = !colorable;
-    colorResetButton.hidden = !!s || !state.textColors[selected];
+    colorResetButton.hidden = s ? !s.baseColor || s.color === s.baseColor : !state.textColors[selected];
     copyButton.disabled = !s;
     deleteButton.disabled = !s && selected !== "logo";
 
@@ -999,7 +1060,11 @@ function hitTest(p) {
     // 위에 그려진 것부터 (글자·로고 → 나중에 더한 도형)
     for (let i = boxes.length - 1; i >= 0; i--) {
         const b = boxes[i];
-        if (p[0] >= b.x - 8 && p[0] <= b.x + b.w + 8 && p[1] >= b.y - 8 && p[1] <= b.y + b.h + 8) return b.key;
+        if (b.shape) {
+            if (shapeHit(b.shape, p, 8)) return b.key;
+        } else if (p[0] >= b.x - 8 && p[0] <= b.x + b.w + 8 && p[1] >= b.y - 8 && p[1] <= b.y + b.h + 8) {
+            return b.key;
+        }
     }
     return null;
 }
@@ -1178,7 +1243,13 @@ pasteButton.addEventListener("click", function () { pasteShape(copied); });
 deleteButton.addEventListener("click", deleteSelection);
 document.getElementById("deselectButton").addEventListener("click", function () { selectKey(null); });
 colorResetButton.addEventListener("click", function () {
-    delete state.textColors[selected];
+    const s = shapeOf();
+    if (s) {
+        s.color = s.baseColor; // 양식 장식은 다시 주·보조 색상을 따라감
+        buildShapeList();
+    } else {
+        delete state.textColors[selected];
+    }
     render();
 });
 
@@ -1199,6 +1270,22 @@ document.getElementById("downloadButton").addEventListener("click", function () 
 });
 
 /* ========== 이벤트 연결 ========== */
+
+// 색 버튼 채우기 (직접 고르기 칸 앞에)
+[["mainColors", state.main], ["subColors", state.sub], ["selColors", null]].forEach(function (g) {
+    const group = document.getElementById(g[0]);
+    const picker = group.querySelector("input");
+    PALETTE.forEach(function (c) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.dataset.value = c[0];
+        b.style.setProperty("--swatch", c[0]);
+        b.title = c[1];
+        b.setAttribute("aria-label", c[1]);
+        if (c[0] === g[1]) b.classList.add("active");
+        group.insertBefore(b, picker);
+    });
+});
 
 ImageKit.setupTheme(document.getElementById("themeSelect"));
 ImageKit.setupDropzone(document.getElementById("logoDrop"), document.getElementById("logoInput"), handleLogo);
@@ -1235,6 +1322,9 @@ document.getElementById("addRow").addEventListener("click", function () {
 
 document.getElementById("resetLayout").addEventListener("click", function () {
     state.offsets = {};
+    if (shapeOf() && shapeOf().deco) selected = null;
+    applyTemplateDeco();
+    buildShapeList();
     render();
 });
 
@@ -1245,6 +1335,8 @@ logoSize.addEventListener("input", function () {
 
 ["company", "name", "title", "dept"].forEach(bindText);
 buildRows();
+applyTemplateDeco();
+buildShapeList();
 buildTemplateGrid();
 window.addEventListener("resize", render);
 render();

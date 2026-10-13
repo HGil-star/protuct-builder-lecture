@@ -57,12 +57,6 @@
             <div class="field">
                 <span class="field-label">주 색상</span>
                 <div class="swatches" id="mainColors">
-                    <button type="button" data-value="#1f3a8a" style="--swatch:#1f3a8a" aria-label="남색" class="active"></button>
-                    <button type="button" data-value="#0f766e" style="--swatch:#0f766e" aria-label="청록"></button>
-                    <button type="button" data-value="#b91c1c" style="--swatch:#b91c1c" aria-label="빨강"></button>
-                    <button type="button" data-value="#c2410c" style="--swatch:#c2410c" aria-label="주황"></button>
-                    <button type="button" data-value="#6d28d9" style="--swatch:#6d28d9" aria-label="보라"></button>
-                    <button type="button" data-value="#1f2937" style="--swatch:#1f2937" aria-label="먹색"></button>
                     <input type="color" id="mainCustom" value="#2563eb" aria-label="주 색상 직접 고르기">
                 </div>
                 <p class="field-help select-note" id="mainColorNote" hidden></p>
@@ -70,11 +64,6 @@
             <div class="field">
                 <span class="field-label">보조 색상</span>
                 <div class="swatches" id="subColors">
-                    <button type="button" data-value="#93c5fd" style="--swatch:#93c5fd" aria-label="하늘" class="active"></button>
-                    <button type="button" data-value="#c9a227" style="--swatch:#c9a227" aria-label="금색"></button>
-                    <button type="button" data-value="#d1d5db" style="--swatch:#d1d5db" aria-label="연회색"></button>
-                    <button type="button" data-value="#5eead4" style="--swatch:#5eead4" aria-label="민트"></button>
-                    <button type="button" data-value="#fca5a5" style="--swatch:#fca5a5" aria-label="분홍"></button>
                     <input type="color" id="subCustom" value="#facc15" aria-label="보조 색상 직접 고르기">
                 </div>
             </div>
@@ -89,7 +78,7 @@
 
             <!-- 사용자 정의 도형 -->
             <div class="field">
-                <span class="field-label">도형 더하기 <span class="optional">(선택)</span></span>
+                <span class="field-label">도형·장식</span>
                 <div class="chips" id="shapeAdd">
                     <button type="button" data-value="rect">＋ 사각형</button>
                     <button type="button" data-value="circle">＋ 원</button>
@@ -97,7 +86,7 @@
                     <button type="button" data-value="triangle">＋ 삼각형</button>
                 </div>
                 <div class="shape-list" id="shapeList"></div>
-                <p class="field-help">양식 위에 기본 도형을 얹어요. 고르면 미리보기 아래에서 크기·위치를 mm 단위로 맞추고, Ctrl+C / Ctrl+V로 복사할 수 있어요.</p>
+                <p class="field-help">아래 목록에는 양식의 테두리·띠·원 같은 장식도 들어 있어요. 목록이나 미리보기에서 눌러 고르면 색·크기·위치(mm)를 바꾸거나 지울 수 있고, Ctrl+C / Ctrl+V로 복사할 수 있어요.</p>
             </div>
 
             <!-- 2. 로고 -->
@@ -152,7 +141,7 @@
             <div class="info-form" id="rowList"></div>
             <button type="button" class="secondary" id="addRow">＋ 항목 추가</button>
 
-            <button type="button" class="secondary" id="resetLayout">글자·로고 위치 처음대로</button>
+            <button type="button" class="secondary" id="resetLayout">양식 장식·위치 처음대로</button>
         </section>
 
         <!-- 미리보기 -->
@@ -176,16 +165,7 @@
                 <div class="selection-color" id="selectionColor">
                     <span class="selection-label">색</span>
                     <div class="swatches" id="selColors">
-                        <button type="button" data-value="#1b1d22" style="--swatch:#1b1d22" aria-label="검정"></button>
-                        <button type="button" data-value="#1f3a8a" style="--swatch:#1f3a8a" aria-label="남색"></button>
-                        <button type="button" data-value="#0f766e" style="--swatch:#0f766e" aria-label="청록"></button>
-                        <button type="button" data-value="#b91c1c" style="--swatch:#b91c1c" aria-label="빨강"></button>
-                        <button type="button" data-value="#c2410c" style="--swatch:#c2410c" aria-label="주황"></button>
-                        <button type="button" data-value="#6d28d9" style="--swatch:#6d28d9" aria-label="보라"></button>
-                        <button type="button" data-value="#93c5fd" style="--swatch:#93c5fd" aria-label="하늘"></button>
-                        <button type="button" data-value="#c9a227" style="--swatch:#c9a227" aria-label="금색"></button>
-                        <button type="button" data-value="#d1d5db" style="--swatch:#d1d5db" aria-label="연회색"></button>
-                        <input type="color" id="selCustom" value="#1f3a8a" aria-label="고른 객체 색 직접 고르기">
+                    <input type="color" id="selCustom" value="#1f3a8a" aria-label="고른 객체 색 직접 고르기">
                     </div>
                     <button type="button" class="link-button" id="colorResetButton">기본 색으로</button>
                 </div>
