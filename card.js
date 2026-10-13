@@ -72,6 +72,7 @@ const state = {
     logoName: "",
     logoScale: 1,
     offsets: {},        // 끌어서 옮긴 거리 { logo: [dx, dy], ... }
+    textColors: {},     // 고른 글자 묶음만 바꾼 색 { company: "#...", name, info }
     shapes: []          // 사용자 도형 { id, type, color, x, y, w, h }
 };
 
@@ -311,9 +312,10 @@ function infoLines(ctx, align) {
         const label = labelOf(row);
         const last = lines[lines.length - 1];
         const joining = row.join && last && last.key === "tel";
+        const own = state.textColors.info;
         if (joining) parts.push({ text: "", weight: 400, size: 19, color: TEXT_COLOR, gap: 26 });
-        if (label) parts.push({ text: label, weight: 700, size: 19, color: state.main, gap: 12, minWidth: joining ? 0 : labelWidth });
-        parts.push({ text: value, weight: 400, size: 19, color: TEXT_COLOR });
+        if (label) parts.push({ text: label, weight: 700, size: 19, color: own || state.main, gap: 12, minWidth: joining ? 0 : labelWidth });
+        parts.push({ text: value, weight: 400, size: 19, color: own || TEXT_COLOR });
         if (joining) {
             last.parts = last.parts.concat(parts);
             last.key = "joined";
@@ -326,12 +328,13 @@ function infoLines(ctx, align) {
 
 function nameLines() {
     const lines = [];
+    const own = state.textColors.name;
     if (state.dept.trim()) {
-        lines.push({ parts: [{ text: state.dept.trim(), weight: 400, size: 21, color: SUB_TEXT_COLOR }], height: 34, descent: 8 });
+        lines.push({ parts: [{ text: state.dept.trim(), weight: 400, size: 21, color: own || SUB_TEXT_COLOR }], height: 34, descent: 8 });
     }
     const nameParts = [];
-    if (state.name.trim()) nameParts.push({ text: state.name.trim(), weight: 700, size: 50, color: TEXT_COLOR, gap: 14 });
-    if (state.title.trim()) nameParts.push({ text: state.title.trim(), weight: 400, size: 24, color: SUB_TEXT_COLOR });
+    if (state.name.trim()) nameParts.push({ text: state.name.trim(), weight: 700, size: 50, color: own || TEXT_COLOR, gap: 14 });
+    if (state.title.trim()) nameParts.push({ text: state.title.trim(), weight: 400, size: 24, color: own || SUB_TEXT_COLOR });
     if (nameParts.length) lines.push({ parts: nameParts, height: 62, descent: 12 });
     return lines;
 }
@@ -394,7 +397,7 @@ function drawCard(ctx, templateId, useOffsets) {
     }
 
     if (state.company.trim()) {
-        const parts = [{ text: state.company.trim(), weight: 700, size: 32, color: state.main }];
+        const parts = [{ text: state.company.trim(), weight: 700, size: 32, color: state.textColors.company || state.main }];
         let cx = ax, top, room = maxWidth;
         if (state.logo && align !== "center") {
             // 로고 옆에, 로고 높이의 가운데에
@@ -476,16 +479,27 @@ function renderPreview() {
     ctx.setTransform(k, 0, 0, k, 0, 0);
     boxes = drawCard(ctx, state.template, true);
 
-    // 고른 요소 표시 (저장되는 그림에는 안 들어감)
+    // 고른 요소 표시와 크기 조절 손잡이 (저장되는 그림에는 안 들어감)
     const box = boxes.find(function (b) { return b.key === selected; });
     if (box) {
+        const px = W / canvas.clientWidth; // 화면 1px의 설계 단위
+        const handles = handlesOf(box);
+        const pad = handles.length ? 0 : 6;
         ctx.save();
-        ctx.setLineDash([8, 6]);
-        ctx.lineWidth = 2;
+        ctx.setLineDash([6 * px, 4 * px]);
+        ctx.lineWidth = 1.5 * px;
         ctx.strokeStyle = "#03b75a";
-        ctx.strokeRect(box.x - 6, box.y - 6, box.w + 12, box.h + 12);
+        ctx.strokeRect(box.x - pad, box.y - pad, box.w + pad * 2, box.h + pad * 2);
+        ctx.setLineDash([]);
+        ctx.fillStyle = "#ffffff";
+        handles.forEach(function (h) {
+            const r = HANDLE_PX / 2 * px;
+            ctx.fillRect(h.x - r, h.y - r, r * 2, r * 2);
+            ctx.strokeRect(h.x - r, h.y - r, r * 2, r * 2);
+        });
         ctx.restore();
     }
+    syncSelectionBar();
 }
 
 // 양식 고르기 칸: 지금 내용과 색으로 작게 그려서 보여 줌
@@ -534,15 +548,14 @@ function setupSwatches(group, picker, onChange) {
             b.classList.toggle("active", b === el);
         });
     }
+    // onChange가 false를 돌려주면 (고른 객체에만 적용) 이 줄의 선택 표시는 그대로
     group.addEventListener("click", function (event) {
         const target = event.target.closest("button");
         if (!target) return;
-        select(target);
-        onChange(target.dataset.value);
+        if (onChange(target.dataset.value) !== false) select(target);
     });
     picker.addEventListener("input", function () {
-        select(picker);
-        onChange(picker.value);
+        if (onChange(picker.value) !== false) select(picker);
     });
 }
 
@@ -672,15 +685,17 @@ function showLogoFile() {
     remove.textContent = "×";
     remove.title = state.logoName + " 삭제";
     remove.setAttribute("aria-label", remove.title);
-    remove.addEventListener("click", function () {
-        state.logoSource = null;
-        delete state.offsets.logo;
-        if (selected === "logo") selected = null;
-        showLogoFile();
-        updateLogo();
-    });
+    remove.addEventListener("click", removeLogo);
     chip.append(name, remove);
     logoFile.append(chip);
+}
+
+function removeLogo() {
+    state.logoSource = null;
+    delete state.offsets.logo;
+    if (selected === "logo") selected = null;
+    showLogoFile();
+    updateLogo();
 }
 
 async function handleLogo(file) {
@@ -699,14 +714,56 @@ async function handleLogo(file) {
 /* ========== 도형 ========== */
 
 const SHAPE_NAMES = { rect: "사각형", circle: "원", line: "선", triangle: "삼각형" };
+const TEXT_NAMES = { logo: "로고", company: "회사명", name: "이름·직급·부서", info: "연락처" };
+const HANDLE_PX = 10;            // 크기 조절 손잡이 크기 (화면 px)
+const CLIP_MARK = "명함도형:";   // 클립보드에 넣는 도형 표시
+const CURSORS = { nw: "nwse-resize", se: "nwse-resize", ne: "nesw-resize", sw: "nesw-resize", n: "ns-resize", s: "ns-resize", e: "ew-resize", w: "ew-resize" };
+
+const selectionBar = document.getElementById("selectionBar");
+const selectionName = document.getElementById("selectionName");
+const selectionColor = document.getElementById("selectionColor");
+const selColors = document.getElementById("selColors");
+const selCustom = document.getElementById("selCustom");
+const colorResetButton = document.getElementById("colorResetButton");
+const sizeGrid = document.getElementById("sizeGrid");
+const copyButton = document.getElementById("copyButton");
+const pasteButton = document.getElementById("pasteButton");
+const deleteButton = document.getElementById("deleteButton");
+const mainColorNote = document.getElementById("mainColorNote");
+const toast = document.getElementById("toast");
+
+let copied = null;     // 복사한 도형
+let barKey = null;     // 크기 입력칸을 만든 대상 (바뀔 때만 다시 만들기)
+
+function shapeOf(key) {
+    key = key || selected;
+    if (!key || key.indexOf("shape:") !== 0) return null;
+    return state.shapes.find(function (s) { return "shape:" + s.id === key; }) || null;
+}
+
+function shapeTitle(s) {
+    return SHAPE_NAMES[s.type] + " " + (state.shapes.indexOf(s) + 1);
+}
+
+function selectedTitle() {
+    const s = shapeOf();
+    return s ? shapeTitle(s) : TEXT_NAMES[selected] || "";
+}
+
+function showToast(text) {
+    toast.textContent = text;
+    toast.hidden = false;
+    clearTimeout(showToast.timer);
+    showToast.timer = setTimeout(function () { toast.hidden = true; }, 1600);
+}
 
 function addShape(type) {
     const size = {
-        rect: [140, 90], circle: [110, 110], line: [240, 6], triangle: [120, 104]
+        rect: [200, 100], circle: [100, 100], line: [300, 6], triangle: [120, 100]
     }[type];
     const s = {
         id: ++shapeSeq, type: type, color: state.main,
-        w: size[0], h: size[1], x: (W - size[0]) / 2, y: (H - size[1]) / 2
+        w: size[0], h: size[1], x: Math.round((W - size[0]) / 2), y: Math.round((H - size[1]) / 2)
     };
     state.shapes.push(s);
     selected = "shape:" + s.id;
@@ -714,26 +771,91 @@ function addShape(type) {
     render();
 }
 
+function copySelection() {
+    const s = shapeOf();
+    if (!s) {
+        showToast("도형만 복사할 수 있어요");
+        return null;
+    }
+    copied = Object.assign({}, s);
+    pasteButton.disabled = false;
+    showToast(shapeTitle(s) + " 복사함");
+    return copied;
+}
+
+// 붙여넣기: 원본보다 2mm씩 옆에 (다시 붙이면 또 2mm 옆에)
+function pasteShape(source) {
+    if (!source || !SHAPE_NAMES[source.type]) return;
+    const s = {
+        id: ++shapeSeq, type: source.type, color: String(source.color || state.main),
+        w: Number(source.w) || 100, h: Number(source.h) || 100,
+        x: (Number(source.x) || 0) + 20, y: (Number(source.y) || 0) + 20
+    };
+    if (s.x > W - 20 || s.y > H - 20) { s.x = Number(source.x) || 0; s.y = Number(source.y) || 0; }
+    state.shapes.push(s);
+    copied = Object.assign({}, s);
+    pasteButton.disabled = false;
+    selected = "shape:" + s.id;
+    buildShapeList();
+    render();
+    showToast(shapeTitle(s) + " 붙여넣음");
+}
+
+function deleteSelection() {
+    const s = shapeOf();
+    if (s) {
+        state.shapes.splice(state.shapes.indexOf(s), 1);
+        selected = null;
+        buildShapeList();
+        render();
+    } else if (selected === "logo") {
+        removeLogo();
+    }
+}
+
+// 고른 객체에만 색 바꾸기 (바꿨으면 true)
+function setSelectionColor(color) {
+    const s = shapeOf();
+    if (s) {
+        s.color = color;
+        buildShapeList();
+    } else if (selected && selected !== "logo" && TEXT_NAMES[selected]) {
+        state.textColors[selected] = color;
+    } else {
+        return false;
+    }
+    render();
+    return true;
+}
+
+function setLogoScale(scale) {
+    state.logoScale = Math.min(2.5, Math.max(0.3, scale));
+    logoSize.value = Math.round(state.logoScale * 100);
+    logoSizeValue.textContent = logoSize.value + "%";
+    render();
+}
+
 function buildShapeList() {
     shapeList.replaceChildren();
-    state.shapes.forEach(function (s, i) {
+    state.shapes.forEach(function (s) {
         const item = document.createElement("div");
         item.className = "shape-item" + (selected === "shape:" + s.id ? " active" : "");
 
-        const head = document.createElement("div");
-        head.className = "shape-head";
-        const title = document.createElement("strong");
-        title.textContent = SHAPE_NAMES[s.type] + " " + (i + 1);
+        const title = document.createElement("button");
+        title.type = "button";
+        title.className = "shape-title";
+        title.textContent = shapeTitle(s) + "  " + mm(s.w) + " × " + mm(s.h) + "mm";
+        title.addEventListener("click", function () { selectKey("shape:" + s.id); });
         const color = document.createElement("input");
         color.type = "color";
         color.value = s.color;
-        color.setAttribute("aria-label", title.textContent + " 색");
+        color.setAttribute("aria-label", shapeTitle(s) + " 색");
         color.addEventListener("input", function () { s.color = color.value; render(); });
         const remove = document.createElement("button");
         remove.type = "button";
         remove.className = "file-remove";
         remove.textContent = "×";
-        remove.title = title.textContent + " 삭제";
+        remove.title = shapeTitle(s) + " 삭제";
         remove.setAttribute("aria-label", remove.title);
         remove.addEventListener("click", function () {
             state.shapes.splice(state.shapes.indexOf(s), 1);
@@ -741,37 +863,132 @@ function buildShapeList() {
             buildShapeList();
             render();
         });
-        head.append(title, color, remove);
-        item.append(head);
-
-        // 크기: 가로, 세로 (선은 길이, 두께)
-        const isLine = s.type === "line";
-        [["w", isLine ? "길이" : "가로", 10, W], ["h", isLine ? "두께" : "세로", isLine ? 1 : 10, isLine ? 40 : H]].forEach(function (d) {
-            const label = document.createElement("label");
-            label.className = "shape-size";
-            const text = document.createElement("span");
-            text.textContent = d[1];
-            const range = document.createElement("input");
-            range.type = "range";
-            range.min = d[2];
-            range.max = d[3];
-            range.value = s[d[0]];
-            range.addEventListener("input", function () {
-                // 가운데를 그대로 두고 크기만 바꾸기
-                const before = s[d[0]];
-                s[d[0]] = Number(range.value);
-                if (d[0] === "w") s.x -= (s.w - before) / 2;
-                else s.y -= (s.h - before) / 2;
-                render();
-            });
-            label.append(text, range);
-            item.append(label);
-        });
+        item.append(title, color, remove);
         shapeList.append(item);
     });
 }
 
-/* ========== 미리보기에서 끌어서 옮기기 ========== */
+/* ========== 고른 객체 편집 칸 ========== */
+
+// 설계 단위(0.1mm) → mm 글자
+function mm(units) {
+    return String(Math.round(units) / 10);
+}
+
+// 크기·위치 입력 한 줄: 이름, −, 숫자(mm), +
+function sizeRow(label, get, set, step, min, unit) {
+    const row = document.createElement("div");
+    row.className = "size-row";
+    const name = document.createElement("span");
+    name.textContent = label;
+    const minus = document.createElement("button");
+    minus.type = "button";
+    minus.textContent = "−";
+    minus.setAttribute("aria-label", label + " 줄이기");
+    const input = document.createElement("input");
+    input.type = "number";
+    input.className = "text-input";
+    input.step = step;
+    input.setAttribute("aria-label", label + " (" + unit + ")");
+    const plus = document.createElement("button");
+    plus.type = "button";
+    plus.textContent = "+";
+    plus.setAttribute("aria-label", label + " 늘리기");
+    const suffix = document.createElement("span");
+    suffix.className = "size-unit";
+    suffix.textContent = unit;
+
+    function apply(value) {
+        if (!isFinite(value)) return;
+        if (min !== null) value = Math.max(min, value);
+        set(Math.round(value * 1000) / 1000);
+        buildShapeList();
+        render();
+    }
+    input.addEventListener("input", function () {
+        if (input.value !== "") apply(Number(input.value));
+    });
+    input.addEventListener("blur", function () { input.value = get(); });
+    minus.addEventListener("click", function () { apply(Number(get()) - step); });
+    plus.addEventListener("click", function () { apply(Number(get()) + step); });
+
+    row.append(name, minus, input, plus, suffix);
+    row.sync = function () {
+        if (document.activeElement !== input) input.value = get();
+    };
+    return row;
+}
+
+function buildSizeGrid() {
+    sizeGrid.replaceChildren();
+    const s = shapeOf();
+    const rows = [];
+    if (s) {
+        const isLine = s.type === "line";
+        rows.push(
+            sizeRow(isLine ? "길이" : "가로", function () { return mm(s.w); }, function (v) { s.w = v * 10; }, 1, 0.1, "mm"),
+            sizeRow(isLine ? "두께" : "세로", function () { return mm(s.h); }, function (v) { s.h = v * 10; }, isLine ? 0.1 : 1, 0.1, "mm"),
+            sizeRow("X 위치", function () { return mm(s.x); }, function (v) { s.x = v * 10; }, 1, null, "mm"),
+            sizeRow("Y 위치", function () { return mm(s.y); }, function (v) { s.y = v * 10; }, 1, null, "mm")
+        );
+    } else if (selected === "logo") {
+        rows.push(sizeRow("크기", function () { return Math.round(state.logoScale * 100); },
+            function (v) { setLogoScale(v / 100); }, 10, 30, "%"));
+    }
+    rows.forEach(function (row) { sizeGrid.append(row); });
+    sizeGrid.hidden = rows.length === 0;
+}
+
+function currentColor() {
+    const s = shapeOf();
+    if (s) return s.color;
+    if (selected === "company") return state.textColors.company || state.main;
+    return state.textColors[selected] || (selected === "info" ? state.main : TEXT_COLOR);
+}
+
+function syncSelectionBar() {
+    const colorable = !!selected && selected !== "logo";
+    mainColorNote.hidden = !colorable;
+    if (colorable) {
+        mainColorNote.textContent = "지금은 고른 '" + selectedTitle() + "'에만 적용돼요. 전체 색을 바꾸려면 선택을 해제하세요 (Esc).";
+    }
+
+    selectionBar.hidden = !selected;
+    if (!selected) {
+        barKey = null;
+        return;
+    }
+    const s = shapeOf();
+    selectionName.textContent = "선택: " + selectedTitle();
+    selectionColor.hidden = !colorable;
+    colorResetButton.hidden = !!s || !state.textColors[selected];
+    copyButton.disabled = !s;
+    deleteButton.disabled = !s && selected !== "logo";
+
+    const color = currentColor().toLowerCase();
+    let matched = false;
+    selColors.querySelectorAll("button").forEach(function (b) {
+        const on = b.dataset.value.toLowerCase() === color;
+        b.classList.toggle("active", on);
+        if (on) matched = true;
+    });
+    selCustom.classList.toggle("active", !matched);
+    if (!matched && /^#[0-9a-f]{6}$/.test(color)) selCustom.value = color;
+
+    if (barKey !== selected) {
+        barKey = selected;
+        buildSizeGrid();
+    }
+    sizeGrid.querySelectorAll(".size-row").forEach(function (row) { row.sync(); });
+}
+
+/* ========== 미리보기에서 고르기·옮기기·크기 바꾸기 ========== */
+
+// 어디서든 같은 배치로 계산하려고 쓰는 작은 캔버스
+const scratch = document.createElement("canvas").getContext("2d");
+function layoutBoxes() {
+    return drawCard(scratch, state.template, true);
+}
 
 function toDesign(event) {
     const rect = canvas.getBoundingClientRect();
@@ -787,15 +1004,78 @@ function hitTest(p) {
     return null;
 }
 
+// 크기 조절 손잡이: 도형은 8개, 로고는 비율 유지라 모서리 4개
+function handlesOf(box) {
+    const s = shapeOf(box.key);
+    if (!s && box.key !== "logo") return [];
+    const ids = s ? ["nw", "n", "ne", "e", "se", "s", "sw", "w"] : ["nw", "ne", "se", "sw"];
+    return ids.map(function (id) {
+        const hx = id.indexOf("w") >= 0 ? box.x : id.indexOf("e") >= 0 ? box.x + box.w : box.x + box.w / 2;
+        const hy = id.indexOf("n") >= 0 ? box.y : id.indexOf("s") >= 0 ? box.y + box.h : box.y + box.h / 2;
+        return { id: id, x: hx, y: hy };
+    });
+}
+
+function handleAt(p, event) {
+    const box = boxes.find(function (b) { return b.key === selected; });
+    if (!box) return null;
+    const tol = HANDLE_PX * (event.pointerType === "touch" ? 1.6 : 0.9) * W / canvas.clientWidth;
+    return handlesOf(box).find(function (h) {
+        return Math.abs(p[0] - h.x) <= tol && Math.abs(p[1] - h.y) <= tol;
+    }) || null;
+}
+
 function moveSelected(dx, dy) {
     if (!selected) return;
-    if (selected.indexOf("shape:") === 0) {
-        const s = state.shapes.find(function (x) { return "shape:" + x.id === selected; });
-        if (s) { s.x += dx; s.y += dy; }
+    const s = shapeOf();
+    if (s) {
+        s.x += dx;
+        s.y += dy;
     } else {
         const o = offsetOf(selected);
         state.offsets[selected] = [o[0] + dx, o[1] + dy];
     }
+    render();
+}
+
+// 끄는 손잡이의 반대쪽 모서리는 그대로 두고 크기 바꾸기 (Shift: 비율 유지)
+function resizeSelected(p, keepRatio) {
+    const b = drag.box;
+    const id = drag.handle;
+    const dx = p[0] - drag.start[0];
+    const dy = p[1] - drag.start[1];
+    let w = b.w, h = b.h;
+    if (id.indexOf("w") >= 0) w = b.w - dx;
+    if (id.indexOf("e") >= 0) w = b.w + dx;
+    if (id.indexOf("n") >= 0) h = b.h - dy;
+    if (id.indexOf("s") >= 0) h = b.h + dy;
+
+    const s = shapeOf();
+    if (s) {
+        if (keepRatio && id.length === 2) {
+            const f = Math.max(w / b.w, h / b.h);
+            w = b.w * f;
+            h = b.h * f;
+        }
+        w = Math.max(1, Math.round(w));
+        h = Math.max(1, Math.round(h));
+        s.w = w;
+        s.h = h;
+        s.x = id.indexOf("w") >= 0 ? b.x + b.w - w : b.x;
+        s.y = id.indexOf("n") >= 0 ? b.y + b.h - h : b.y;
+        buildShapeList();
+        render();
+        return;
+    }
+
+    // 로고: 비율 유지, 반대쪽 모서리가 제자리에 있게 위치 보정
+    setLogoScale(drag.scale * (w / b.w + h / b.h) / 2);
+    const nb = layoutBoxes().find(function (x) { return x.key === "logo"; });
+    if (!nb) return;
+    const wantX = id.indexOf("w") >= 0 ? b.x + b.w - nb.w : b.x;
+    const wantY = id.indexOf("n") >= 0 ? b.y + b.h - nb.h : b.y;
+    const o = offsetOf("logo");
+    state.offsets.logo = [o[0] + wantX - nb.x, o[1] + wantY - nb.y];
     render();
 }
 
@@ -810,10 +1090,17 @@ let drag = null;
 
 canvas.addEventListener("pointerdown", function (event) {
     const p = toDesign(event);
-    const key = hitTest(p);
-    selectKey(key);
-    if (!key) return;
-    drag = { last: p, id: event.pointerId };
+    const handle = handleAt(p, event);
+    if (handle) {
+        const s = shapeOf();
+        const box = s ? { x: s.x, y: s.y, w: s.w, h: s.h } : Object.assign({}, boxes.find(function (b) { return b.key === selected; }));
+        drag = { mode: "resize", handle: handle.id, start: p, box: box, scale: state.logoScale };
+    } else {
+        const key = hitTest(p);
+        selectKey(key);
+        if (!key) return;
+        drag = { mode: "move", last: p };
+    }
     canvas.focus({ preventScroll: true });
     canvas.setPointerCapture(event.pointerId);
     event.preventDefault();
@@ -821,24 +1108,78 @@ canvas.addEventListener("pointerdown", function (event) {
 canvas.addEventListener("pointermove", function (event) {
     const p = toDesign(event);
     if (!drag) {
-        canvas.style.cursor = hitTest(p) ? "move" : "default";
+        const handle = handleAt(p, event);
+        canvas.style.cursor = handle ? CURSORS[handle.id] : hitTest(p) ? "move" : "default";
         return;
     }
-    moveSelected(p[0] - drag.last[0], p[1] - drag.last[1]);
-    drag.last = p;
+    if (drag.mode === "resize") {
+        resizeSelected(p, event.shiftKey);
+    } else {
+        moveSelected(p[0] - drag.last[0], p[1] - drag.last[1]);
+        drag.last = p;
+    }
 });
 ["pointerup", "pointercancel"].forEach(function (type) {
     canvas.addEventListener(type, function () { drag = null; });
 });
-canvas.addEventListener("keydown", function (event) {
+
+/* ========== 키보드: 방향키, Delete, Esc, Ctrl+C / Ctrl+V ========== */
+
+function isTyping(el) {
+    return !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
+}
+
+document.addEventListener("keydown", function (event) {
+    if (isTyping(event.target) || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (event.key === "Escape") {
+        selectKey(null);
+        return;
+    }
+    if (!selected) return;
     const step = event.shiftKey ? 10 : 2;
     const move = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[event.key];
-    if (move && selected) {
+    if (move) {
         event.preventDefault();
         moveSelected(move[0], move[1]);
-    } else if (event.key === "Escape") {
-        selectKey(null);
+    } else if ((event.key === "Delete" || event.key === "Backspace") && (shapeOf() || selected === "logo")) {
+        event.preventDefault();
+        deleteSelection();
     }
+});
+
+// 복사: 도형을 고른 상태에서 Ctrl+C면 그 도형을 클립보드에
+document.addEventListener("copy", function (event) {
+    if (!selected || isTyping(document.activeElement) || String(window.getSelection())) return;
+    const c = copySelection();
+    if (!c || !event.clipboardData) return;
+    event.clipboardData.setData("text/plain", CLIP_MARK + JSON.stringify(c));
+    event.preventDefault();
+});
+
+// 붙여넣기: 클립보드에 복사한 도형이 있으면 도형으로, 그림이면 로고로 (로고 처리는 다음 단계에)
+window.addEventListener("paste", function (event) {
+    if (isTyping(document.activeElement) || !event.clipboardData) return;
+    const data = event.clipboardData;
+    const hasImage = Array.from(data.files || []).some(function (f) { return f.type.indexOf("image/") === 0; });
+    if (hasImage) return;
+    const text = data.getData("text/plain") || "";
+    if (text.indexOf(CLIP_MARK) !== 0) return;
+    let source = null;
+    try {
+        source = JSON.parse(text.slice(CLIP_MARK.length));
+    } catch (e) { /* 잘못된 내용은 무시 */ }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    pasteShape(source);
+}, true);
+
+copyButton.addEventListener("click", copySelection);
+pasteButton.addEventListener("click", function () { pasteShape(copied); });
+deleteButton.addEventListener("click", deleteSelection);
+document.getElementById("deselectButton").addEventListener("click", function () { selectKey(null); });
+colorResetButton.addEventListener("click", function () {
+    delete state.textColors[selected];
+    render();
 });
 
 /* ========== 저장 ========== */
@@ -863,9 +1204,12 @@ ImageKit.setupTheme(document.getElementById("themeSelect"));
 ImageKit.setupDropzone(document.getElementById("logoDrop"), document.getElementById("logoInput"), handleLogo);
 
 setupSwatches(document.getElementById("mainColors"), document.getElementById("mainCustom"), function (color) {
+    // 객체를 골라 둔 상태면 그 객체만 바꾸기
+    if (setSelectionColor(color)) return false;
     state.main = color;
     render();
 });
+setupSwatches(selColors, selCustom, setSelectionColor);
 setupSwatches(document.getElementById("subColors"), document.getElementById("subCustom"), function (color) {
     state.sub = color;
     render();
@@ -896,9 +1240,7 @@ document.getElementById("resetLayout").addEventListener("click", function () {
 
 logoClear.addEventListener("change", updateLogo);
 logoSize.addEventListener("input", function () {
-    state.logoScale = Number(logoSize.value) / 100;
-    logoSizeValue.textContent = logoSize.value + "%";
-    render();
+    setLogoScale(Number(logoSize.value) / 100);
 });
 
 ["company", "name", "title", "dept"].forEach(bindText);
