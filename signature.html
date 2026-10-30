@@ -162,6 +162,40 @@
                 <input type="text" id="companyName" class="text-input" maxlength="16" placeholder="예: 주식회사 한빛" autocomplete="organization">
                 <p class="field-help">넣으면 원형 법인 인감과 사각 직인 샘플도 만들어요.</p>
             </div>
+            <div id="corpOptions" hidden>
+                <div class="field">
+                    <span class="field-label">법인 도장 안쪽 글자 (직위)</span>
+                    <div class="chips" id="corpTitle">
+                        <button type="button" data-value="代表理事" class="active">代表理事</button>
+                        <button type="button" data-value="대표이사">대표이사</button>
+                        <button type="button" data-value="代表之印">代表之印</button>
+                        <button type="button" data-value="대표지인">대표지인</button>
+                        <button type="button" data-value="대표의인">대표의인</button>
+                        <button type="button" data-value="회장지인">회장지인</button>
+                        <button type="button" data-value="이사지인">이사지인</button>
+                        <button type="button" data-value="대표이사사장">대표이사사장</button>
+                        <button type="button" data-value="name">도장 글자(성명)</button>
+                    </div>
+                    <p class="field-help">주식회사는 보통 代表理事(대표이사), 개인사업자는 代表之印이나 성명을 넣어요.</p>
+                </div>
+                <div class="field">
+                    <span class="field-label">비표 (바깥 고리 위쪽 표시)</span>
+                    <div class="chips" id="corpMark">
+                        <button type="button" data-value="★" class="active">★</button>
+                        <button type="button" data-value="▲">▲</button>
+                        <button type="button" data-value="◆">◆</button>
+                        <button type="button" data-value="●">●</button>
+                        <button type="button" data-value="②">②</button>
+                        <button type="button" data-value="③">③</button>
+                        <button type="button" data-value="">없음</button>
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="field-label" for="corpBottom">바깥 고리 아래 글자 <span class="optional">(선택)</span></label>
+                    <input type="text" id="corpBottom" class="text-input" maxlength="14" placeholder="예: HANBIT 또는 3215467" autocomplete="off">
+                    <p class="field-help">넣으면 회사명은 위쪽, 이 글자는 아래쪽에 바로 읽히게 새기고 양옆에 비표를 넣어요.</p>
+                </div>
+            </div>
             <div class="field">
                 <span class="field-label">모양</span>
                 <div class="chips" id="stampShapes">
@@ -206,10 +240,15 @@
                 <input type="range" id="stampWear" min="0" max="4" value="2">
             </div>
             <div class="field">
+                <label class="field-label" for="stampThick">글자 획 <output id="stampThickValue">조금 굵게</output></label>
+                <input type="range" id="stampThick" min="0" max="3" value="1">
+            </div>
+            <div class="field">
                 <label class="field-label" for="stampBorder">테두리 굵기 <output id="stampBorderValue">보통</output></label>
                 <input type="range" id="stampBorder" min="1" max="5" value="3">
             </div>
             <div class="field">
+                <label class="check"><input type="checkbox" id="stampPaper" checked> 종이에 찍힌 모습으로 보기</label>
                 <label class="check"><input type="checkbox" id="stampWhite"> 흰 배경으로 저장</label>
             </div>
         </section>
@@ -219,7 +258,7 @@
                 <h2>도장 샘플 <span class="count" id="stampCount"></span></h2>
                 <span class="status-line" id="stampStatus" role="status"></span>
             </div>
-            <div class="sample-grid stamp-grid" id="stampGrid"></div>
+            <div class="sample-grid stamp-grid on-paper" id="stampGrid"></div>
         </section>
     </main>
 

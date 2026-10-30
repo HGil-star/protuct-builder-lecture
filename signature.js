@@ -33,6 +33,9 @@ const SIGN_FONTS = [
     ["Whisper", 400, "en"]
 ].map(function (f) { return { family: f[0], weight: f[1], group: f[2] }; });
 
+// 원래 획이 아주 두꺼워서 더 굵게 하면 글자가 뭉개지는 글꼴
+const HEAVY_FONTS = ["Black Han Sans", "Gasoek One", "Bagel Fat One", "Gothic A1"];
+
 // 도장에 어울리는 글꼴 (한자가 없는 글꼴은 본명조로 대신 그림)
 const STAMP_FONTS = [
     ["Nanum Myeongjo", 800], ["Noto Serif KR", 900], ["Gowun Batang", 700], ["Hahmlet", 700],
@@ -40,11 +43,11 @@ const STAMP_FONTS = [
     ["Yeon Sung", 400], ["Nanum Brush Script", 400], ["East Sea Dokdo", 400], ["Dokdo", 400],
     ["Gothic A1", 900], ["Nanum Gothic", 800], ["Sunflower", 700], ["Stylish", 400],
     ["Diphylleia", 400], ["Gasoek One", 400], ["Bagel Fat One", 400], ["Orbit", 400], ["Gowun Dodum", 400]
-].map(function (f) { return { family: f[0], weight: f[1] }; });
+].map(function (f) { return { family: f[0], weight: f[1], heavy: HEAVY_FONTS.indexOf(f[0]) >= 0 }; });
 
 const SHAPE_NAMES = {
     circle: "원형", ellipse: "타원", square: "사각", rounded: "둥근사각",
-    double: "이중원", wide: "가로형", corp: "법인 원형", corpSquare: "사각 직인"
+    double: "이중원", wide: "가로형", corp: "법인 원형", corpSeal: "대표 직인", corpSquare: "사각 직인"
 };
 
 /* ========== 공통 도구 ========== */
@@ -583,15 +586,19 @@ const stampName = $("stampName");
 const companyName = $("companyName");
 const stampWear = $("stampWear");
 const stampBorder = $("stampBorder");
+const stampThick = $("stampThick");
 const stampWhite = $("stampWhite");
 const stampGallery = createGallery($("stampGrid"), $("stampCount"), $("stampStatus"));
 const WEAR_LABELS = ["깨끗하게", "살짝", "보통", "많이", "아주 많이"];
 const BORDER_LABELS = ["아주 얇게", "얇게", "보통", "굵게", "아주 굵게"];
+const THICK_LABELS = ["글꼴 그대로", "조금 굵게", "굵게", "아주 굵게"];
 let stampColor = "#d42a2a";
 let stampSuffix = "인";
 let stampShape = "all";
 let stampCarve = "relief";
 let stampOrder = "vertical";
+let corpTitle = "代表理事";
+let corpMark = "★";
 
 // 오른쪽 열부터 위→아래로 읽는 도장 배치. 남는 글자는 왼쪽 열로 (예: 홍 | 길동)
 function columnCells(count, cols, box) {
@@ -661,18 +668,20 @@ function boxInEllipse(cx, cy, rx, ry, aspect) {
 }
 
 // 칸을 꽉 채우도록 글자를 늘려 그림 (도장 글씨처럼). 너무 찌그러지지는 않게
-function drawGlyph(ctx, ch, cell, font) {
+// thick: 획을 덧그려 굵게 하는 정도 (글자 크기 100 기준 px). 도장 글씨처럼 획이 두툼해짐
+function drawGlyph(ctx, ch, cell, font, thick) {
     const base = 100;
+    const extra = (thick || 0) * (font.heavy ? 0.25 : 1);
     ctx.font = fontString(font, base);
     const m = ctx.measureText(ch);
     const left = m.actualBoundingBoxLeft;
     const right = m.actualBoundingBoxRight;
     const ascent = m.actualBoundingBoxAscent;
     const descent = m.actualBoundingBoxDescent;
-    const gw = left + right;
-    const gh = ascent + descent;
-    if (!(gw > 0 && gh > 0)) return;
-    const pad = Math.min(cell.w, cell.h) * 0.05;
+    const gw = left + right + extra;
+    const gh = ascent + descent + extra;
+    if (!(gw > extra && gh > extra)) return;
+    const pad = Math.min(cell.w, cell.h) * 0.03;
     let sx = (cell.w - pad * 2) / gw;
     let sy = (cell.h - pad * 2) / gh;
     if (sx > sy * 1.7) sx = sy * 1.7;
@@ -680,50 +689,147 @@ function drawGlyph(ctx, ch, cell, font) {
     ctx.save();
     ctx.translate(cell.x + cell.w / 2, cell.y + cell.h / 2);
     ctx.scale(sx, sy);
-    ctx.fillText(ch, -(right - left) / 2, (ascent - descent) / 2);
+    const x = -(right - left) / 2;
+    const y = (ascent - descent) / 2;
+    ctx.fillText(ch, x, y);
+    if (extra) {
+        ctx.lineWidth = extra;
+        ctx.lineJoin = "round";
+        ctx.strokeText(ch, x, y);
+    }
     ctx.restore();
 }
 
-// 인주가 덜 묻은 듯한 얼룩 (seed로 같은 모양 유지, 크기에 비례)
-function applyWear(ctx, w, h, unit, level, rng) {
-    if (!level) return;
-    ctx.save();
-    ctx.globalCompositeOperation = "destination-out";
-    const dots = Math.round(level * level * 260 * (w * h) / (unit * unit));
-    for (let i = 0; i < dots; i++) {
-        ctx.globalAlpha = 0.35 + rng() * 0.65;
-        ctx.beginPath();
-        ctx.arc(rng() * w, rng() * h, (0.4 + rng() * rng() * 2.4) * unit / 300, 0, Math.PI * 2);
-        ctx.fill();
-    }
-    const patches = level * 2;
-    for (let i = 0; i < patches; i++) {
-        const x = rng() * w;
-        const y = rng() * h;
-        const r = (0.12 + rng() * 0.25) * unit;
-        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-        g.addColorStop(0, "rgba(0,0,0," + (0.12 + level * 0.07) + ")");
-        g.addColorStop(1, "rgba(0,0,0,0)");
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = g;
-        ctx.fillRect(x - r, y - r, r * 2, r * 2);
-    }
-    if (level >= 3) {
-        ctx.lineCap = "round";
-        for (let i = 0; i < level * 2; i++) {
-            ctx.globalAlpha = 0.5 + rng() * 0.4;
-            ctx.lineWidth = (0.6 + rng()) * unit / 300;
-            const x = rng() * w;
-            const y = rng() * h;
-            const a = rng() * Math.PI;
-            const len = (0.05 + rng() * 0.15) * unit;
-            ctx.beginPath();
-            ctx.moveTo(x, y);
-            ctx.lineTo(x + Math.cos(a) * len, y + Math.sin(a) * len);
-            ctx.stroke();
+// 부드러운 값 노이즈 (0~1). 표 하나를 만들어 두고 도장마다 시작 위치만 바꿔 씀
+const NOISE = (function () {
+    const rng = seededRandom(20240917);
+    const table = new Float32Array(65536);
+    for (let i = 0; i < table.length; i++) table[i] = rng();
+    return function (x, y) {
+        const xi = Math.floor(x);
+        const yi = Math.floor(y);
+        let fx = x - xi;
+        let fy = y - yi;
+        fx = fx * fx * (3 - 2 * fx);
+        fy = fy * fy * (3 - 2 * fy);
+        const x0 = xi & 255;
+        const x1 = (xi + 1) & 255;
+        const y0 = (yi & 255) << 8;
+        const y1 = ((yi + 1) & 255) << 8;
+        const a = table[y0 + x0];
+        const b = table[y0 + x1];
+        const c = table[y1 + x0];
+        const d = table[y1 + x1];
+        return a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy;
+    };
+})();
+
+function smoothstep(lo, hi, v) {
+    const t = Math.min(1, Math.max(0, (v - lo) / (hi - lo)));
+    return t * t * (3 - 2 * t);
+}
+
+// 가로·세로 상자 흐림 (누적합). 값 배열은 0~255
+function boxBlur(src, W, H, r) {
+    const tmp = new Float32Array(W * H);
+    const out = new Float32Array(W * H);
+    const n = r * 2 + 1;
+    for (let y = 0; y < H; y++) {
+        let sum = 0;
+        const row = y * W;
+        for (let x = -r; x <= r; x++) sum += src[row + Math.min(W - 1, Math.max(0, x))];
+        for (let x = 0; x < W; x++) {
+            tmp[row + x] = sum / n;
+            sum += src[row + Math.min(W - 1, x + r + 1)] - src[row + Math.max(0, x - r)];
         }
     }
-    ctx.restore();
+    for (let x = 0; x < W; x++) {
+        let sum = 0;
+        for (let y = -r; y <= r; y++) sum += tmp[Math.min(H - 1, Math.max(0, y)) * W + x];
+        for (let y = 0; y < H; y++) {
+            out[y * W + x] = sum / n;
+            sum += tmp[Math.min(H - 1, y + r + 1) * W + x] - tmp[Math.max(0, y - r) * W + x];
+        }
+    }
+    return out;
+}
+
+// 종이에 실제로 찍은 듯한 인주 자국: 울퉁불퉁한 가장자리, 종이 결, 덜 묻은 얼룩,
+// 한쪽으로 쏠린 힘, 가장자리에 몰린 인주. 좌표를 S 기준으로 재서 미리보기와 저장 이미지가 같음
+function inkImpression(canvas, S, level, seed) {
+    if (!level) return;
+    const W = canvas.width;
+    const H = canvas.height;
+    const ctx = canvas.getContext("2d");
+    const img = ctx.getImageData(0, 0, W, H);
+    const data = img.data;
+    const src = new Uint8Array(W * H);
+    // 한 가지 색으로 찍으므로 가장 진한 점의 색을 인주 색으로 씀 (밀린 가장자리가 검게 되지 않게)
+    let ink = [0, 0, 0];
+    let best = 0;
+    for (let i = 0; i < src.length; i++) {
+        src[i] = data[i * 4 + 3];
+        if (src[i] > best) {
+            best = src[i];
+            ink = [data[i * 4], data[i * 4 + 1], data[i * 4 + 2]];
+        }
+    }
+
+    // 가장자리 판정용 흐린 사본 (도장 크기에 비례한 반경으로 두 번 상자 흐림)
+    const blur = boxBlur(boxBlur(src, W, H, Math.max(1, Math.round(S * 0.006))), W, H, Math.max(1, Math.round(S * 0.006)));
+
+    const rng = seededRandom(seed * 7 + 3);
+    const ox = rng() * 256;
+    const oy = rng() * 256;
+    const angle = rng() * Math.PI * 2;
+    const gx = Math.cos(angle);
+    const gy = Math.sin(angle);
+    const t = level / 4;
+    const amp = S * (0.002 + 0.004 * t);
+    const unit = 1 / S;
+    const halfU = W * unit / 2;
+    const halfV = H * unit / 2;
+    const holeLimit = 0.8 - 0.07 * t;
+
+    for (let y = 0; y < H; y++) {
+        const v = y * unit;
+        for (let x = 0; x < W; x++) {
+            const u = x * unit;
+            const i = y * W + x;
+            // 가장자리를 조금씩 밀고 당겨 손으로 판 듯이
+            const dx = (NOISE(u * 34 + ox, v * 34 + oy) - 0.5) * 2 * amp
+                + (NOISE(u * 120 + oy, v * 120 + ox) - 0.5) * amp * 0.6;
+            const dy = (NOISE(u * 34 + oy + 91, v * 34 + ox + 37) - 0.5) * 2 * amp
+                + (NOISE(u * 120 + ox + 51, v * 120 + oy + 17) - 0.5) * amp * 0.6;
+            const sx = Math.min(W - 1, Math.max(0, Math.round(x + dx)));
+            const sy = Math.min(H - 1, Math.max(0, Math.round(y + dy)));
+            const a = src[sy * W + sx];
+            if (!a) { data[i * 4 + 3] = 0; continue; }
+
+            // 축을 돌려 섞어서 네모난 무늬가 드러나지 않게
+            const ru = u * 0.8 + v * 0.6;
+            const rv = v * 0.8 - u * 0.6;
+            const grain = NOISE(u * 55 + ox, v * 55 + oy) * 0.5
+                + NOISE(ru * 110 + oy, rv * 110 + ox) * 0.3
+                + NOISE(rv * 230 + ox, ru * 230 + oy) * 0.2;
+            const blot = NOISE(u * 4.5 + ox, v * 4.5 + oy) * 0.7 + NOISE(ru * 11 + oy, rv * 11 + ox) * 0.3;
+            const speck = NOISE(ru * 150 + ox + 13, rv * 150 + oy + 29) * 0.6 + NOISE(u * 320 + oy, v * 320 + ox) * 0.4;
+            const press = (u - halfU) * gx + (v - halfV) * gy + 0.5;   // 0(진함) ~ 1(연함)
+            const edge = 1 - blur[i] / 255;                            // 가장자리일수록 큼
+
+            let d = 1
+                - t * 0.6 * smoothstep(0.5, 0.8, grain)
+                - t * 0.85 * smoothstep(0.55, 0.9, blot)
+                - t * 0.4 * Math.max(0, press) * smoothstep(0.35, 0.7, grain)
+                + edge * 0.5;
+            d *= 1 - smoothstep(holeLimit, holeLimit + 0.05, speck);
+            data[i * 4] = ink[0];
+            data[i * 4 + 1] = ink[1];
+            data[i * 4 + 2] = ink[2];
+            data[i * 4 + 3] = a * Math.min(1, Math.max(0, d));
+        }
+    }
+    ctx.putImageData(img, 0, 0);
 }
 
 function ellipsePath(ctx, cx, cy, rx, ry) {
@@ -745,8 +851,9 @@ function roundRectPath(ctx, x, y, w, h, r) {
 function renderStamp(spec, color, scale) {
     const S = 300 * scale;
     const bw = S * [0.02, 0.03, 0.042, 0.056, 0.072][Number(stampBorder.value) - 1];
-    const margin = bw / 2 + S * 0.02;
-    const gap = bw / 2 + S * 0.04;
+    const margin = bw / 2 + S * 0.03;
+    const gap = bw / 2 + S * 0.025;
+    const thick = [0, 3, 6, 10][Number(stampThick.value)];
     const intaglio = spec.carve === "intaglio";
     const chars = spec.chars;
     const sizes = { ellipse: [0.72, 1], wide: [1.7, 0.62], corp: [1.1, 1.1], corpSquare: [1.05, 1.05] };
@@ -769,7 +876,7 @@ function renderStamp(spec, color, scale) {
     let cells = [];
     const cx = W / 2;
     const cy = H / 2;
-    if (spec.shape === "circle" || spec.shape === "double" || spec.shape === "ellipse") {
+    if (spec.shape === "circle" || spec.shape === "corpSeal" || spec.shape === "double" || spec.shape === "ellipse") {
         let rx = W / 2 - margin;
         let ry = H / 2 - margin;
         outline(function () { ellipsePath(ctx, cx, cy, rx, ry); });
@@ -809,7 +916,7 @@ function renderStamp(spec, color, scale) {
         cells = rowCells(chars.length, { x: (W - boxW) / 2, y: inset, w: boxW, h: H - inset * 2 });
     } else if (spec.shape === "corp") {
         const R = W / 2 - margin;
-        const r = R * 0.6;
+        const r = R * 0.57;
         outline(function () { ellipsePath(ctx, cx, cy, R, R); });
         ctx.save();
         ctx.lineWidth = bw * 0.7;
@@ -817,35 +924,54 @@ function renderStamp(spec, color, scale) {
         ellipsePath(ctx, cx, cy, r, r);
         ctx.stroke();
         ctx.restore();
-        // 바깥 고리에 회사명을 시계 방향으로 (아래쪽에 별)
-        const ring = spec.ring;
-        const slots = ring.length + 1;
+        // 바깥 고리: 위쪽 비표 다음부터 회사명을 시계 방향으로.
+        // 아래 글자가 있으면 회사명은 위 반원, 아래 글자는 아래 반원에 바로 읽히게, 비표는 양옆에
         const mid = (R - bw / 2 + r + bw * 0.35) / 2;
         const band = (R - bw / 2) - (r + bw * 0.35);
-        const arc = 2 * Math.PI * mid / slots;
-        if (intaglio) ctx.globalCompositeOperation = "destination-out";
-        for (let i = 0; i <= ring.length; i++) {
-            const angle = Math.PI / 2 + (i + 1) * 2 * Math.PI / slots;
-            const ch = i === ring.length ? "★" : ring[i];
-            if (ch === " ") continue;
-            ctx.save();
-            ctx.translate(cx + Math.cos(angle) * mid, cy + Math.sin(angle) * mid);
-            ctx.rotate(angle + Math.PI / 2);
-            const isStar = ch === "★";
-            const cw = Math.min(arc * 0.92, band * 0.9) * (isStar ? 0.7 : 1);
-            const chH = band * 0.78 * (isStar ? 0.7 : 1);
-            drawGlyph(ctx, ch, { x: -cw / 2, y: -chH / 2, w: cw, h: chH }, spec.font);
-            ctx.restore();
+        const placed = [];   // [글자, 각도, 아래쪽(바로 읽힘)인지, 한 글자 몫의 각도]
+        if (spec.bottom.length) {
+            // 양옆 비표 자리를 비워 두고 반원씩 나눠 씀
+            const side = spec.mark ? Math.PI * 0.09 : Math.PI * 0.03;
+            const span = Math.PI - side * 2;
+            const top = span / spec.ring.length;
+            spec.ring.forEach(function (ch, i) { placed.push([ch, Math.PI + side + (i + 0.5) * top, false, top]); });
+            const low = Math.min(span / spec.bottom.length, Math.PI / 5);
+            const start = Math.PI / 2 + low * (spec.bottom.length - 1) / 2;
+            spec.bottom.forEach(function (ch, i) { placed.push([ch, start - i * low, true, low]); });
+            if (spec.mark) {
+                placed.push([spec.mark, Math.PI, false, top]);
+                placed.push([spec.mark, 0, false, top]);
+            }
+        } else {
+            const slots = spec.ring.length + (spec.mark ? 1 : 0);
+            const step = 2 * Math.PI / slots;
+            const first = spec.mark ? 1 : 0.5;
+            if (spec.mark) placed.push([spec.mark, -Math.PI / 2, false, step]);
+            spec.ring.forEach(function (ch, i) { placed.push([ch, -Math.PI / 2 + (i + first) * step, false, step]); });
         }
+        if (intaglio) ctx.globalCompositeOperation = "destination-out";
+        placed.forEach(function (p) {
+            const ch = p[0];
+            if (ch === " ") return;
+            const isMark = ch === spec.mark;
+            const shrink = isMark ? 0.7 : 1;
+            ctx.save();
+            ctx.translate(cx + Math.cos(p[1]) * mid, cy + Math.sin(p[1]) * mid);
+            ctx.rotate(p[2] ? p[1] - Math.PI / 2 : p[1] + Math.PI / 2);
+            const cw = Math.min(p[3] * mid * 0.92, band * 0.9) * shrink;
+            const chH = band * 0.84 * shrink;
+            drawGlyph(ctx, ch, { x: -cw / 2, y: -chH / 2, w: cw, h: chH }, spec.font, thick * 0.6);
+            ctx.restore();
+        });
         ctx.globalCompositeOperation = "source-over";
         cells = gridCells(chars.length, boxInEllipse(cx, cy, r - gap, r - gap, gridAspect(chars.length, 0.6, 1.6)));
     }
 
     if (intaglio) ctx.globalCompositeOperation = "destination-out";
-    cells.forEach(function (cell, i) { drawGlyph(ctx, chars[i], cell, spec.font); });
+    cells.forEach(function (cell, i) { drawGlyph(ctx, chars[i], cell, spec.font, thick); });
     ctx.globalCompositeOperation = "source-over";
 
-    applyWear(ctx, W, H, S, Number(stampWear.value), seededRandom(spec.seed));
+    inkImpression(canvas, S, Number(stampWear.value), spec.seed);
     return canvas;
 }
 
@@ -855,6 +981,9 @@ function stampSpecs() {
     const specs = [];
     const carves = stampCarve === "both" ? ["relief", "intaglio"] : [stampCarve];
     const personal = ["circle", "ellipse", "square", "rounded", "double", "wide"];
+    // 법인 도장 안쪽 글자: 고른 직위, 또는 도장 글자(성명)
+    const title = Array.from(corpTitle === "name" ? (name ? name + stampSuffix : "代表理事") : corpTitle);
+    const bottom = Array.from($("corpBottom").value.trim().replace(/\s+/g, " "));
     let seed = 11;
     STAMP_FONTS.forEach(function (font) {
         carves.forEach(function (carve) {
@@ -866,13 +995,14 @@ function stampSpecs() {
                 });
             }
             if (company && (stampShape === "all" || stampShape === "corp")) {
-                specs.push({ shape: "corp", font: font, carve: carve, chars: Array.from("대표이사" + (stampSuffix || "인")), ring: Array.from(company), seed: seed++, label: company });
+                specs.push({ shape: "corp", font: font, carve: carve, chars: title, ring: Array.from(company), bottom: bottom, mark: corpMark, seed: seed++, label: company });
+                specs.push({ shape: "corpSeal", font: font, carve: carve, chars: title, seed: seed++, label: company + "_" + title.join("") });
                 specs.push({ shape: "corpSquare", font: font, carve: carve, chars: Array.from(company.replace(/\s+/g, "") + (stampSuffix || "之印")), seed: seed++, label: company });
             }
         });
     });
     // 같은 모양끼리 모이도록 정렬 (글꼴 순서는 유지)
-    const order = ["circle", "double", "square", "rounded", "ellipse", "wide", "corp", "corpSquare"];
+    const order = ["circle", "double", "square", "rounded", "ellipse", "wide", "corp", "corpSeal", "corpSquare"];
     return specs.sort(function (a, b) { return order.indexOf(a.shape) - order.indexOf(b.shape); });
 }
 
@@ -891,7 +1021,7 @@ async function showStamps() {
     }
     stampGallery.stop();
     stampGallery.status("글꼴 불러오는 중…");
-    const text = stampName.value + stampSuffix + companyName.value + "대표이사인之印★";
+    const text = stampName.value + stampSuffix + companyName.value + $("corpBottom").value + corpTitle + corpMark + "대표이사인之印";
     const ok = await Promise.all(STAMP_FONTS.map(function (f) { return loadFont(f, text); }));
     const usable = specs.filter(function (s) { return ok[STAMP_FONTS.indexOf(s.font)]; });
     stampGallery.show(usable, stampCard, false);
@@ -909,12 +1039,20 @@ const showStampsLater = debounce(showStamps, 300);
 stampName.addEventListener("input", showStampsLater);
 companyName.addEventListener("input", function () {
     corpChip.hidden = !companyName.value.trim();
+    $("corpOptions").hidden = corpChip.hidden;
     if (corpChip.hidden && stampShape === "corp") $("stampShapes").firstElementChild.click();
     showStampsLater();
 });
 stampWear.addEventListener("input", function () {
     $("stampWearValue").textContent = WEAR_LABELS[stampWear.value];
     showStampsLater();
+});
+stampThick.addEventListener("input", function () {
+    $("stampThickValue").textContent = THICK_LABELS[stampThick.value];
+    showStampsLater();
+});
+$("stampPaper").addEventListener("change", function () {
+    $("stampGrid").classList.toggle("on-paper", $("stampPaper").checked);
 });
 stampBorder.addEventListener("input", function () {
     $("stampBorderValue").textContent = BORDER_LABELS[stampBorder.value - 1];
@@ -924,6 +1062,9 @@ ImageKit.setupSegmented($("stampSuffix"), function (value) { stampSuffix = value
 ImageKit.setupSegmented($("stampShapes"), function (value) { stampShape = value; showStamps(); });
 ImageKit.setupSegmented($("stampOrder"), function (value) { stampOrder = value; showStamps(); });
 ImageKit.setupSegmented($("stampCarve"), function (value) { stampCarve = value; showStamps(); });
+ImageKit.setupSegmented($("corpTitle"), function (value) { corpTitle = value; showStamps(); });
+ImageKit.setupSegmented($("corpMark"), function (value) { corpMark = value; showStamps(); });
+$("corpBottom").addEventListener("input", showStampsLater);
 setupSwatches($("stampColors"), $("stampCustom"), function (color) { stampColor = color; showStampsLater(); });
 
 /* ========== 탭 전환 ========== */
