@@ -15,6 +15,7 @@
     <link rel="stylesheet" href="common.css">
     <link rel="stylesheet" href="ui.css">
     <link rel="stylesheet" href="signature.css">
+    <link rel="stylesheet" href="stamp.css">
 </head>
 
 <body>
@@ -49,7 +50,7 @@
         <div class="segmented mode-tabs" id="modeTabs" role="tablist" aria-label="만들기 방식">
             <button type="button" data-value="draw" role="tab">✍️ 서명하기</button>
             <button type="button" data-value="make" role="tab">✒️ 서명 만들기</button>
-            <button type="button" data-value="stamp" role="tab">🔴 도장 만들기</button>
+            <button type="button" data-value="stamp" role="tab">도장 만들기</button>
         </div>
     </section>
 
@@ -140,143 +141,67 @@
         </section>
     </main>
 
-    <!-- ===== 도장 만들기 ===== -->
-    <main class="tool" id="panel-stamp" data-mode="stamp" hidden>
-        <section class="panel controls">
-            <div class="field">
-                <label class="field-label" for="stampName">도장 글자</label>
-                <input type="text" id="stampName" class="text-input" maxlength="8" value="홍길동" autocomplete="name">
-            </div>
-            <div class="field">
-                <span class="field-label">끝 글자</span>
-                <div class="chips" id="stampSuffix">
-                    <button type="button" data-value="">없음</button>
-                    <button type="button" data-value="인" class="active">인</button>
-                    <button type="button" data-value="의인">의인</button>
-                    <button type="button" data-value="印">印</button>
-                    <button type="button" data-value="之印">之印</button>
-                </div>
-            </div>
-            <div class="field">
-                <label class="field-label" for="companyName">회사·단체명 <span class="optional">(선택)</span></label>
-                <input type="text" id="companyName" class="text-input" maxlength="16" placeholder="예: 주식회사 한빛" autocomplete="organization">
-                <p class="field-help">넣으면 원형 법인 인감과 사각 직인 샘플도 만들어요.</p>
-            </div>
-            <div id="corpOptions" hidden>
-                <div class="field">
-                    <span class="field-label">법인 도장 안쪽 글자 (직위)</span>
-                    <div class="chips" id="corpTitle">
-                        <button type="button" data-value="代表理事" class="active">代表理事</button>
-                        <button type="button" data-value="대표이사">대표이사</button>
-                        <button type="button" data-value="代表之印">代表之印</button>
-                        <button type="button" data-value="대표지인">대표지인</button>
-                        <button type="button" data-value="대표의인">대표의인</button>
-                        <button type="button" data-value="회장지인">회장지인</button>
-                        <button type="button" data-value="이사지인">이사지인</button>
-                        <button type="button" data-value="대표이사사장">대표이사사장</button>
-                        <button type="button" data-value="name">도장 글자(성명)</button>
-                    </div>
-                    <p class="field-help">주식회사는 보통 代表理事(대표이사), 개인사업자는 代表之印이나 성명을 넣어요.</p>
-                </div>
-                <div class="field">
-                    <span class="field-label">비표 (바깥 고리 위쪽 표시)</span>
-                    <div class="chips" id="corpMark">
-                        <button type="button" data-value="★" class="active">★</button>
-                        <button type="button" data-value="▲">▲</button>
-                        <button type="button" data-value="◆">◆</button>
-                        <button type="button" data-value="●">●</button>
-                        <button type="button" data-value="②">②</button>
-                        <button type="button" data-value="③">③</button>
-                        <button type="button" data-value="">없음</button>
-                    </div>
-                </div>
-                <div class="field">
-                    <label class="field-label" for="corpBottom">바깥 고리 아래 글자 <span class="optional">(선택)</span></label>
-                    <input type="text" id="corpBottom" class="text-input" maxlength="14" placeholder="예: HANBIT 또는 3215467" autocomplete="off">
-                    <p class="field-help">넣으면 회사명은 위쪽, 이 글자는 아래쪽에 바로 읽히게 새기고 양옆에 비표를 넣어요.</p>
-                </div>
-            </div>
-            <div class="field">
-                <span class="field-label">모양</span>
-                <div class="chips" id="stampShapes">
-                    <button type="button" data-value="all" class="active">전체</button>
-                    <button type="button" data-value="circle">원형</button>
-                    <button type="button" data-value="ellipse">타원</button>
-                    <button type="button" data-value="square">사각</button>
-                    <button type="button" data-value="rounded">둥근사각</button>
-                    <button type="button" data-value="double">이중원</button>
-                    <button type="button" data-value="wide">가로형</button>
-                </div>
-            </div>
-            <div class="field">
-                <span class="field-label">글자 배치</span>
-                <div class="segmented" id="stampOrder">
-                    <button type="button" data-value="vertical" class="active">세로쓰기 (전통)</button>
-                    <button type="button" data-value="horizontal">가로쓰기</button>
-                </div>
-                <p class="field-help">세로쓰기는 오른쪽 줄부터 위→아래로 읽어요. 예: 홍길동인 → 오른쪽 '홍길', 왼쪽 '동인'</p>
-            </div>
-            <div class="field">
-                <span class="field-label">새김</span>
-                <div class="segmented" id="stampCarve">
-                    <button type="button" data-value="relief" class="active">양각 (글자가 빨강)</button>
-                    <button type="button" data-value="intaglio">음각</button>
-                    <button type="button" data-value="both">모두</button>
-                </div>
-            </div>
-            <div class="field">
-                <span class="field-label">인주 색</span>
-                <div class="swatches" id="stampColors">
-                    <button type="button" data-value="#d42a2a" style="--swatch:#d42a2a" aria-label="인주 빨강" class="active"></button>
-                    <button type="button" data-value="#a3111c" style="--swatch:#a3111c" aria-label="진홍"></button>
-                    <button type="button" data-value="#e5532d" style="--swatch:#e5532d" aria-label="주홍"></button>
-                    <button type="button" data-value="#1f3a8a" style="--swatch:#1f3a8a" aria-label="남색"></button>
-                    <button type="button" data-value="#111111" style="--swatch:#111111" aria-label="검정"></button>
-                    <input type="color" id="stampCustom" value="#8b1a4a" aria-label="직접 고르기">
-                </div>
-            </div>
-            <div class="field">
-                <label class="field-label" for="stampWear">찍힌 느낌 <output id="stampWearValue">보통</output></label>
-                <input type="range" id="stampWear" min="0" max="4" value="2">
-            </div>
-            <div class="field">
-                <label class="field-label" for="stampThick">글자 획 <output id="stampThickValue">조금 굵게</output></label>
-                <input type="range" id="stampThick" min="0" max="3" value="1">
-            </div>
-            <div class="field">
-                <label class="field-label" for="stampBorder">테두리 굵기 <output id="stampBorderValue">보통</output></label>
-                <input type="range" id="stampBorder" min="1" max="5" value="3">
-            </div>
-            <div class="field">
-                <label class="check"><input type="checkbox" id="stampPaper" checked> 종이에 찍힌 모습으로 보기</label>
-                <label class="check"><input type="checkbox" id="stampWhite"> 흰 배경으로 저장</label>
-            </div>
+    <!-- 독립 도장 편집기: 기존 서명 도구와 상태를 공유하지 않음 -->
+    <main id="panel-stamp" data-mode="stamp" class="seal-tool" hidden>
+      <div class="seal-heading"><div><span class="seal-eyebrow">DOCUMENT SEAL STUDIO</span><h2>문서에 남기는 단정한 인상</h2><p>개인 이름부터 회사 직인까지, 투명한 도장 이미지로 만드세요.</p></div><span class="seal-local">브라우저 내부 처리</span></div>
+      <div class="seal-layout">
+       <form id="seal-form" class="seal-settings" autocomplete="off">
+        <section class="seal-card"><h3>01 <span>도장 종류와 모양</span></h3>
+         <div class="seal-tabs" role="group" aria-label="도장 종류"><button type="button" data-kind="personal" aria-pressed="true">개인도장</button><button type="button" data-kind="corporate" aria-pressed="false">법인도장</button></div>
+         <div class="seal-shapes" role="group" aria-label="도장 모양"><button type="button" data-shape="circle" aria-pressed="true"><svg viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="16"/><path d="M16 13v14m8-14v14M12 20h16"/></svg>원형</button><button type="button" data-shape="square" aria-pressed="false"><svg viewBox="0 0 40 40" aria-hidden="true"><rect x="5" y="5" width="30" height="30"/><path d="M16 13v14m8-14v14M12 20h16"/></svg>정사각형</button><button type="button" data-shape="rectangle" aria-pressed="false"><svg viewBox="0 0 40 40" aria-hidden="true"><rect x="2" y="10" width="36" height="20"/><path d="M16 13v14m8-14v14M12 20h16"/></svg>직사각형</button><button type="button" data-shape="ellipse" aria-pressed="false"><svg viewBox="0 0 40 40" aria-hidden="true"><ellipse cx="20" cy="20" rx="12" ry="17"/><path d="M16 13v14m8-14v14M12 20h16"/></svg>타원형</button></div></section>
+        <section class="seal-card"><h3>02 <span>새길 문구</span></h3>
+         <label><span id="seal-name-label">개인 이름</span><input id="seal-name" name="name" value="홍길동" maxlength="64" required></label>
+         <div class="seal-row"><label>문자 종류<select name="language"><option value="mixed">한글 + 한자 혼합</option><option value="hangul">한글</option><option value="hanja">한자</option></select></label><label id="seal-suffix-label">끝 글자<select name="suffix"><option value="">없음</option><option selected>인</option><option>印</option><option>之印</option></select></label></div>
+         <p class="seal-help">한자는 직접 입력해 주세요. 이름의 한자를 임의로 변환하지 않습니다.</p>
+         <div id="seal-corporate" hidden>
+          <label>중앙 직함<select id="seal-title-preset"><option>대표이사</option><option>대표이사인</option><option>대표자</option><option>대표자인</option><option>사용인</option><option>代表理事</option><option>代表理事印</option><option value="custom">직접 입력</option></select></label>
+          <label>중앙 문구<input name="title" value="대표이사" maxlength="24"></label>
+          <div class="seal-row"><label>중앙 문자 종류<select name="titleLanguage"><option value="mixed">한글 + 한자 혼합</option><option value="hangul">한글</option><option value="hanja">한자</option></select></label><label>중앙 글꼴<select name="titleFont" class="seal-font-options"></select></label></div>
+          <div class="seal-row"><label>중앙 배치<select name="titleLayout"><option value="auto">자동 배치</option><option value="horizontal">가로쓰기</option><option value="vertical">세로쓰기</option><option value="columns">2열 배치</option></select></label><label>구분 기호<select name="mark"><option value="">없음</option><option value="·">점</option><option value="◆">마름모</option></select></label></div>
+          <details><summary>샘플 이미지 참고</summary><label>도장 이미지 업로드<input id="seal-reference" type="file" accept="image/png,image/jpeg,image/webp"></label><img id="seal-reference-preview" alt="업로드한 도장 참고 이미지" hidden><p id="seal-reference-info" class="seal-help">이미지의 잉크 영역과 종횡비를 분석해 모양을 추천합니다. 문구는 직접 입력합니다.</p><button type="button" id="seal-reference-apply" disabled>추천 구조 적용</button><button type="button" id="seal-reference-clear">샘플 지우기</button></details>
+         </div>
         </section>
-
-        <section class="panel gallery-panel on-paper" id="stampPanel">
-            <div class="stamp-preview">
-                <div class="stamp-preview-art" id="stampPreviewArt"></div>
-                <div class="stamp-preview-info">
-                    <span class="preview-kicker">선택한 도장 미리보기</span>
-                    <strong class="preview-label" id="stampPreviewLabel">-</strong>
-                    <p class="field-help">왼쪽에서 바꾼 설정이 바로 여기에 적용돼요. 아래 샘플을 누르면 그 도장으로 바뀌어요.</p>
-                    <div class="button-row">
-                        <button type="button" id="stampPreviewSave" class="primary" disabled>PNG 저장</button>
-                        <button type="button" id="stampPreviewCopy" class="secondary" disabled>이미지 복사</button>
-                    </div>
-                </div>
-            </div>
-            <div class="gallery-head">
-                <h2>도장 샘플 <span class="count" id="stampCount"></span></h2>
-                <span class="status-line" id="stampStatus" role="status"></span>
-            </div>
-            <div class="sample-grid stamp-grid" id="stampGrid"></div>
+        <section class="seal-card"><h3>03 <span>글꼴과 디자인</span></h3>
+         <div class="seal-row"><label>글꼴<select name="font" class="seal-font-options"></select></label><label>글자 배치<select name="layout"><option value="auto">자동 배치</option><option value="vertical">세로쓰기</option><option value="horizontal">가로쓰기</option><option value="columns">2열 배치</option></select></label></div>
+         <p class="seal-help">상업적 사용 가능한 OFL 글꼴. 미지원 문자는 경고하며 저장을 중단합니다. 전서·궁서는 라이선스가 확보된 서체가 없어 제공하지 않습니다.</p>
+         <label>인주 색상</label><div class="seal-colors"><button type="button" data-color="#a51d2d" style="--ink:#a51d2d" aria-label="진홍색" aria-pressed="true"></button><button type="button" data-color="#d12b2b" style="--ink:#d12b2b" aria-label="적색" aria-pressed="false"></button><button type="button" data-color="#711925" style="--ink:#711925" aria-label="암적색" aria-pressed="false"></button><button type="button" data-color="#20385c" style="--ink:#20385c" aria-label="남색" aria-pressed="false"></button><button type="button" data-color="#181818" style="--ink:#181818" aria-label="검정" aria-pressed="false"></button><input type="color" name="color" value="#a51d2d" aria-label="사용자 색상"></div>
+         <div class="seal-row"><label>테두리<select name="borderMode"><option value="single">단일</option><option value="double">이중</option></select></label><label>인주 질감<select name="texture"><option value="0">없음 · 선명하게</option><option value="1">약함</option><option value="2">보통</option></select></label></div>
+         <label>테두리 두께 <output></output><input name="border" type="range" min="1" max="9" value="3" step="0.5"></label>
+         <label>글자 크기 <output></output><input name="fontSize" type="range" min="50" max="120" value="100"></label>
+         <label>글자 간격 <output></output><input name="spacing" type="range" min="0" max="14" value="3"></label>
         </section>
+        <section class="seal-card"><details><summary>04　세부 조정</summary>
+         <label>실물 도장 너비 (mm)<input name="mm" type="number" min="5" max="100" step="0.5" value="18"></label>
+         <label>전체 회전 <output></output><input name="rotation" type="range" min="-180" max="180" value="0"></label>
+         <label>글자 회전 <output></output><input name="glyphRotation" type="range" min="-45" max="45" value="0"></label>
+         <label>글자 정렬<select name="align"><option value="center">가운데</option><option value="start">시작</option><option value="end">끝</option></select></label>
+         <div id="seal-center-settings" hidden>
+          <label>중앙 글자 크기 <output></output><input name="titleSize" type="range" min="50" max="120" value="100"></label>
+          <label>중앙 글자 간격 <output></output><input name="titleSpacing" type="range" min="0" max="14" value="3"></label>
+          <label>중앙 가로 위치 <output></output><input name="titleX" type="range" min="-12" max="12" value="0"></label>
+          <label>중앙 세로 위치 <output></output><input name="titleY" type="range" min="-12" max="12" value="0"></label>
+         </div>
+         <p class="seal-help">글자 크기는 겹침 방지를 위한 안전 영역 안에서 자동 제한됩니다. 실제 크기는 화면 배율과 모니터에 따라 다를 수 있습니다.</p>
+        </details></section>
+       </form>
+       <aside class="seal-preview-column"><section class="seal-preview-card">
+        <div class="seal-preview-heading"><div><span class="seal-eyebrow">LIVE PREVIEW</span><h3>도장 미리보기</h3></div><span id="seal-dimensions"></span></div>
+        <div class="seal-tabs seal-view-tabs" role="group" aria-label="미리보기 배경"><button type="button" data-view="transparent" aria-pressed="true">투명 배경</button><button type="button" data-view="paper" aria-pressed="false">문서 위 날인</button><button type="button" data-view="actual" aria-pressed="false">실제 크기</button></div>
+        <div id="seal-stage" class="seal-stage" data-view="transparent"><div class="seal-paper-caption">DOCUMENT / 확인 및 승인</div><div id="seal-art" aria-label="생성된 도장 미리보기" role="img"></div><div class="seal-paper-line">위 내용을 확인합니다.</div></div>
+        <div class="seal-zoom"><label>확대 / 축소 <input id="seal-zoom" type="range" min="50" max="200" value="100"><output id="seal-zoom-value">100%</output></label><button type="button" id="seal-zoom-reset">100%</button></div>
+        <p id="seal-status" role="status" aria-live="polite">글꼴을 불러오는 중입니다.</p>
+        <div class="seal-export"><label>PNG 해상도<select id="seal-resolution"><option>512</option><option selected>1024</option><option>2048</option><option>4096</option></select></label><button type="button" id="seal-download" disabled>투명 PNG 다운로드</button></div>
+        <div class="seal-export-note"><span id="seal-pixels">1024 × 1024 px · 투명 배경</span><button type="button" id="seal-reset">설정 초기화</button></div>
+       </section><p class="seal-help seal-privacy">입력 문구와 샘플 이미지는 서버에 전송하거나 저장하지 않습니다. 다운로드 이미지는 배경과 워터마크를 포함하지 않습니다.</p></aside>
+      </div>
+      <p class="seal-disclaimer">이 도구에서 생성한 이미지는 도장 도안 또는 문서 삽입용 이미지이며, 등록된 법인인감이나 본인확인 및 전자서명 절차를 자동으로 대체하지 않습니다.</p>
     </main>
 
     <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
     <script src="imagekit.js"></script>
+    <script src="assets/stamp/vendor/opentype.min.js"></script>
+    <script src="stamp.js"></script>
     <script src="signature.js"></script>
 
 </body>
