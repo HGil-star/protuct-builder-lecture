@@ -588,7 +588,6 @@ const stampWear = $("stampWear");
 const stampBorder = $("stampBorder");
 const stampThick = $("stampThick");
 const stampWhite = $("stampWhite");
-const stampGallery = createGallery($("stampGrid"), $("stampCount"), $("stampStatus"));
 const WEAR_LABELS = ["깨끗하게", "살짝", "보통", "많이", "아주 많이"];
 const BORDER_LABELS = ["아주 얇게", "얇게", "보통", "굵게", "아주 굵게"];
 const THICK_LABELS = ["글꼴 그대로", "조금 굵게", "굵게", "아주 굵게"];
@@ -1006,26 +1005,169 @@ function stampSpecs() {
     return specs.sort(function (a, b) { return order.indexOf(a.shape) - order.indexOf(b.shape); });
 }
 
-function stampCard(spec) {
-    const label = SHAPE_NAMES[spec.shape] + (spec.carve === "intaglio" ? " 음각" : "") + " · " + spec.font.family;
-    return sampleCard(renderStamp(spec, stampColor, 1.2), label, function () {
-        return renderStamp(spec, stampColor, 4);
-    }, "도장_" + safeName(spec.label) + ".png", stampWhite);
+function stampKey(spec) {
+    return spec.shape + "|" + spec.font.family + "|" + spec.font.weight + "|" + spec.carve;
+}
+
+function stampLabel(spec) {
+    return SHAPE_NAMES[spec.shape] + (spec.carve === "intaglio" ? " 음각" : "") + " · " + spec.font.family;
+}
+
+function stampFile(spec) {
+    return "도장_" + safeName(spec.label) + ".png";
+}
+
+// 도장 샘플 목록: 설정을 바꿔도 카드는 그대로 두고 그림만 바꿔 끼움 (화면이 튀지 않게).
+// 화면에 보이는 카드부터 다시 그리고, 나머지는 스크롤해서 보일 때 그림
+const stampGrid = $("stampGrid");
+let stampCards = [];
+let stampVersion = 0;
+let stampDraining = false;
+let selectedStamp = null;
+let selectedKey = "";
+
+const stampObserver = new IntersectionObserver(function (entries) {
+    entries.forEach(function (entry) { entry.target.card.visible = entry.isIntersecting; });
+    drainStamps();
+}, { rootMargin: "300px 0px" });
+
+function makeStampCard() {
+    const card = { visible: false, version: -1, spec: null };
+    const figure = document.createElement("figure");
+    figure.className = "sample";
+    figure.card = card;
+    const art = document.createElement("div");
+    art.className = "sample-art";
+    art.title = "이 도장 크게 보기";
+    art.addEventListener("click", function () { selectStamp(card.spec); });
+    const caption = document.createElement("figcaption");
+    const name = document.createElement("span");
+    const actions = document.createElement("div");
+    actions.className = "sample-actions";
+    const save = document.createElement("button");
+    save.type = "button";
+    save.textContent = "저장";
+    save.addEventListener("click", function () {
+        saveImage(renderStamp(card.spec, stampColor, 4), stampFile(card.spec), stampWhite.checked);
+    });
+    const copy = document.createElement("button");
+    copy.type = "button";
+    copy.textContent = "복사";
+    copy.addEventListener("click", function () {
+        copyImage(renderStamp(card.spec, stampColor, 4), stampWhite.checked);
+    });
+    actions.append(save, copy);
+    caption.append(name, actions);
+    figure.append(art, caption);
+    card.figure = figure;
+    card.art = art;
+    card.name = name;
+    return card;
+}
+
+function drawStampCard(card) {
+    ImageKit.showCanvas(card.art, renderStamp(card.spec, stampColor, 1));
+    card.version = stampVersion;
+    card.figure.classList.remove("stale");
+}
+
+// 보이는 카드 중 옛 설정으로 그려진 것을 한 프레임에 조금씩 다시 그림
+async function drainStamps() {
+    if (stampDraining) return;
+    stampDraining = true;
+    while (true) {
+        const todo = stampCards.filter(function (c) { return c.visible && c.version !== stampVersion; });
+        if (!todo.length) break;
+        $("stampStatus").textContent = "적용하는 중…";
+        const start = performance.now();
+        for (let i = 0; i < todo.length && performance.now() - start < 30; i++) drawStampCard(todo[i]);
+        await ImageKit.nextFrame();
+    }
+    $("stampStatus").textContent = "";
+    stampDraining = false;
+}
+
+function renderStampPreview() {
+    const box = $("stampPreviewArt");
+    $("stampPreviewSave").disabled = !selectedStamp;
+    $("stampPreviewCopy").disabled = !selectedStamp;
+    if (!selectedStamp) {
+        box.innerHTML = "";
+        $("stampPreviewLabel").textContent = "-";
+        return;
+    }
+    ImageKit.showCanvas(box, renderStamp(selectedStamp, stampColor, 2));
+    $("stampPreviewLabel").textContent = stampLabel(selectedStamp);
+}
+
+function selectStamp(spec) {
+    selectedStamp = spec;
+    selectedKey = spec ? stampKey(spec) : "";
+    stampCards.forEach(function (c) { c.figure.classList.toggle("selected", c.spec === spec); });
+    renderStampPreview();
+}
+
+function stampMessage(text) {
+    stampVersion++;
+    stampCards.forEach(function (c) { stampObserver.unobserve(c.figure); });
+    stampCards = [];
+    stampGrid.innerHTML = "";
+    const p = document.createElement("p");
+    p.className = "empty-note";
+    p.textContent = text;
+    stampGrid.appendChild(p);
+    $("stampCount").textContent = "";
+    $("stampStatus").textContent = "";
+    selectStamp(null);
 }
 
 async function showStamps() {
     const specs = stampSpecs();
     if (!specs.length) {
-        stampGallery.message(stampShape === "corp" ? "회사·단체명을 입력하면 법인 도장 샘플이 나타나요." : "도장에 새길 글자를 입력해 주세요.");
+        stampMessage(stampShape === "corp" ? "회사·단체명을 입력하면 법인 도장 샘플이 나타나요." : "도장에 새길 글자를 입력해 주세요.");
         return;
     }
-    stampGallery.stop();
-    stampGallery.status("글꼴 불러오는 중…");
+    const mine = ++stampVersion;
+    $("stampStatus").textContent = "글꼴 불러오는 중…";
     const text = stampName.value + stampSuffix + companyName.value + $("corpBottom").value + corpTitle + corpMark + "대표이사인之印";
     const ok = await Promise.all(STAMP_FONTS.map(function (f) { return loadFont(f, text); }));
+    if (mine !== stampVersion) return;
     const usable = specs.filter(function (s) { return ok[STAMP_FONTS.indexOf(s.font)]; });
-    stampGallery.show(usable, stampCard, false);
+
+    // 카드 수만 맞추고 나머지는 재사용
+    const empty = stampGrid.querySelector(".empty-note");
+    if (empty) empty.remove();
+    while (stampCards.length < usable.length) {
+        const card = makeStampCard();
+        stampCards.push(card);
+        stampGrid.appendChild(card.figure);
+        stampObserver.observe(card.figure);
+    }
+    while (stampCards.length > usable.length) {
+        const card = stampCards.pop();
+        stampObserver.unobserve(card.figure);
+        card.figure.remove();
+    }
+    stampCards.forEach(function (card, i) {
+        card.spec = usable[i];
+        card.name.textContent = stampLabel(usable[i]);
+        card.name.title = card.name.textContent;
+        card.figure.classList.add("stale");
+    });
+    $("stampCount").textContent = usable.length + "개";
+
+    // 고른 도장을 먼저 그려서 바로 보이게. 같은 글꼴·모양이 없어졌으면 첫 번째로
+    const keep = usable.filter(function (s) { return stampKey(s) === selectedKey; })[0];
+    selectStamp(keep || usable[0] || null);
+    drainStamps();
 }
+
+$("stampPreviewSave").addEventListener("click", function () {
+    if (selectedStamp) saveImage(renderStamp(selectedStamp, stampColor, 4), stampFile(selectedStamp), stampWhite.checked);
+});
+$("stampPreviewCopy").addEventListener("click", function () {
+    if (selectedStamp) copyImage(renderStamp(selectedStamp, stampColor, 4), stampWhite.checked);
+});
 
 // 회사명을 넣었을 때만 '법인' 칩 보이기
 const corpChip = document.createElement("button");
@@ -1035,7 +1177,7 @@ corpChip.textContent = "법인·직인";
 corpChip.hidden = true;
 $("stampShapes").appendChild(corpChip);
 
-const showStampsLater = debounce(showStamps, 300);
+const showStampsLater = debounce(showStamps, 150);
 stampName.addEventListener("input", showStampsLater);
 companyName.addEventListener("input", function () {
     corpChip.hidden = !companyName.value.trim();
@@ -1052,7 +1194,7 @@ stampThick.addEventListener("input", function () {
     showStampsLater();
 });
 $("stampPaper").addEventListener("change", function () {
-    $("stampGrid").classList.toggle("on-paper", $("stampPaper").checked);
+    $("stampPanel").classList.toggle("on-paper", $("stampPaper").checked);
 });
 stampBorder.addEventListener("input", function () {
     $("stampBorderValue").textContent = BORDER_LABELS[stampBorder.value - 1];

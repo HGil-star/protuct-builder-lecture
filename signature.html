@@ -253,12 +253,24 @@
             </div>
         </section>
 
-        <section class="panel gallery-panel">
+        <section class="panel gallery-panel on-paper" id="stampPanel">
+            <div class="stamp-preview">
+                <div class="stamp-preview-art" id="stampPreviewArt"></div>
+                <div class="stamp-preview-info">
+                    <span class="preview-kicker">선택한 도장 미리보기</span>
+                    <strong class="preview-label" id="stampPreviewLabel">-</strong>
+                    <p class="field-help">왼쪽에서 바꾼 설정이 바로 여기에 적용돼요. 아래 샘플을 누르면 그 도장으로 바뀌어요.</p>
+                    <div class="button-row">
+                        <button type="button" id="stampPreviewSave" class="primary" disabled>PNG 저장</button>
+                        <button type="button" id="stampPreviewCopy" class="secondary" disabled>이미지 복사</button>
+                    </div>
+                </div>
+            </div>
             <div class="gallery-head">
                 <h2>도장 샘플 <span class="count" id="stampCount"></span></h2>
                 <span class="status-line" id="stampStatus" role="status"></span>
             </div>
-            <div class="sample-grid stamp-grid on-paper" id="stampGrid"></div>
+            <div class="sample-grid stamp-grid" id="stampGrid"></div>
         </section>
     </main>
 

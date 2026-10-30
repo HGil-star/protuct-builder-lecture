@@ -65,11 +65,45 @@
 .sample-art canvas { position: absolute; inset: 12px; width: calc(100% - 24px); height: calc(100% - 24px); object-fit: contain; }
 .stamp-grid .sample-art canvas { inset: 16px; width: calc(100% - 32px); height: calc(100% - 32px); }
 /* 종이에 찍힌 모습 미리보기 (저장 이미지에는 영향 없음) */
-.stamp-grid.on-paper .sample-art {
+.on-paper .stamp-grid .sample-art, .on-paper .stamp-preview-art {
     background-color: #f7f2e7;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.45 0 0 0 0 0.38 0 0 0 0 0.28 0 0 0 0.16 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
-.stamp-grid.on-paper .sample-art canvas { mix-blend-mode: multiply; }
+.on-paper .stamp-grid .sample-art canvas, .on-paper .stamp-preview-art canvas { mix-blend-mode: multiply; }
+
+/* 도장 샘플: 눌러서 고르기, 설정을 바꾸는 중인 카드는 흐리게 */
+.stamp-grid .sample-art { cursor: pointer; }
+.stamp-grid .sample.selected { border-color: #03b75a; box-shadow: 0 0 0 2px #03b75a; }
+.stamp-grid .sample.stale canvas { opacity: .35; transition: opacity .2s; }
+
+/* 선택한 도장 크게 보기 (넓은 화면에서는 스크롤해도 위에 붙어 있음) */
+.stamp-preview {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 14px;
+    margin-bottom: 20px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--card);
+}
+.stamp-preview-art {
+    position: relative;
+    flex-shrink: 0;
+    width: 220px;
+    aspect-ratio: 1;
+    border-radius: 10px;
+    background: #fff;
+    overflow: hidden;
+}
+.stamp-preview-art canvas { position: absolute; inset: 14px; width: calc(100% - 28px); height: calc(100% - 28px); object-fit: contain; }
+.stamp-preview-info { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.preview-kicker { font-size: 12px; font-weight: 700; color: #03b75a; }
+.preview-label { font-size: 16px; overflow-wrap: anywhere; }
+.stamp-preview-info .button-row { margin-top: 4px; }
+@media (min-width: 900px) {
+    .stamp-preview { position: sticky; top: 12px; z-index: 2; box-shadow: 0 10px 30px var(--shadow); }
+}
 .sample figcaption {
     display: flex;
     align-items: center;
@@ -99,4 +133,7 @@
     .mode-tabs button { flex: 1; padding: 9px 6px; font-size: 13px; }
     .sign-grid { grid-template-columns: minmax(0, 1fr); }
     .stamp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .stamp-preview { gap: 14px; padding: 10px; }
+    .stamp-preview-art { width: 130px; }
+    .stamp-preview-info .field-help { display: none; }
 }
